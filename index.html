@@ -158,15 +158,38 @@
 
             const isMobile = /Android|iPhone|iPad|iPod/i.test(navigator.userAgent) || window.innerWidth < 768;
             const canShowButton = isMobile && fsSupported();
+            // Exposed so the canvas-drawn pause menu (renderer.js/input.js) can
+            // show its own fullscreen toggle and know whether the device supports it.
+            window._fsCanToggle = canShowButton;
+            window.isFullscreenActive = function() { return !!fsElement(); };
+            window.toggleAppFullscreen = function() {
+                if (fsElement()) {
+                    fsExit().catch(() => {});
+                    if (window.screen && screen.orientation && screen.orientation.unlock) {
+                        try { screen.orientation.unlock(); } catch (e) {}
+                    }
+                } else {
+                    fsRequest(fsTarget).then(() => {
+                        if (window.screen && screen.orientation && screen.orientation.lock) {
+                            screen.orientation.lock('landscape').catch(() => {});
+                        }
+                    }).catch(() => {});
+                }
+            };
 
-            // The in-canvas pause button lives top-right during PLAY/PAUSED, so keep
-            // the fullscreen button off-screen during those states to avoid overlapping
-            // it. Fullscreen persists once toggled, so players just enable it from a
-            // menu screen before kicking off — no need to reach it again mid-match.
+            // The in-canvas pause button/HUD (GK timer chip, difficulty badge)
+            // occupies the top corners during an active match, so the floating
+            // top-right button stays hidden through every in-match state —
+            // PLAY, PAUSED, and the brief GOAL_SCORED celebration (previously
+            // missing here, which is why it used to flicker back in and
+            // overlap the pause button on every goal). Instead, while paused,
+            // the fullscreen toggle lives inside the pause menu itself (see
+            // drawPauseMenu in renderer.js) — always reachable, never
+            // overlapping anything, since that menu is a big empty modal.
             function syncButtonVisibility() {
                 if (!fsBtn || !canShowButton) return;
                 const hideDuringMatch = (typeof currentState !== 'undefined') &&
-                    (currentState === 'PLAY' || currentState === 'PAUSED');
+                    (currentState === 'PLAY' || currentState === 'PAUSED' || currentState === 'GOAL_SCORED');
                 fsBtn.style.display = hideDuringMatch ? 'none' : 'flex';
             }
             if (canShowButton) setInterval(syncButtonVisibility, 200);
@@ -179,20 +202,7 @@
             }
 
             if (fsBtn) {
-                fsBtn.addEventListener('click', () => {
-                    if (fsElement()) {
-                        fsExit().catch(() => {});
-                        if (window.screen && screen.orientation && screen.orientation.unlock) {
-                            try { screen.orientation.unlock(); } catch (e) {}
-                        }
-                    } else {
-                        fsRequest(fsTarget).then(() => {
-                            if (window.screen && screen.orientation && screen.orientation.lock) {
-                                screen.orientation.lock('landscape').catch(() => {});
-                            }
-                        }).catch(() => {});
-                    }
-                });
+                fsBtn.addEventListener('click', () => window.toggleAppFullscreen());
             }
 
             ['fullscreenchange', 'webkitfullscreenchange', 'mozfullscreenchange', 'MSFullscreenChange']
