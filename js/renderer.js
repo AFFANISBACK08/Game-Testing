@@ -421,7 +421,13 @@ function drawPauseMenu() {
     ctx.save();
     ctx.fillStyle = 'rgba(5, 7, 13, 0.8)';
     ctx.fillRect(0,0,canvas.width,canvas.height);
-    drawKitPanel(250, 150, 400, 320, {
+
+    // Grow the card to fit a fullscreen toggle row when the device supports
+    // it, so the toggle is always reachable from the pause menu instead of
+    // as a floating button that has to dodge the in-match HUD.
+    const showFsToggle = isMobileDevice && !!window._fsCanToggle;
+    const cardH = showFsToggle ? 370 : 320;
+    drawKitPanel(250, 150, 400, cardH, {
         clip: 22,
         fill: 'rgba(19, 27, 46, 0.96)',
         border: 'rgba(255,215,106,0.25)'
@@ -460,9 +466,21 @@ function drawPauseMenu() {
     ctx.fillText('Music', 385, 427);
     ctx.fillText('SFX', 515, 427);
 
+    if (showFsToggle) {
+        const isFs = window.isFullscreenActive && window.isFullscreenActive();
+        const fsColor = isFs ? Theme.gold : Theme.chalkDim;
+        drawKitPanel(330, 440, 240, 42, { clip: 10, fill: 'rgba(255,255,255,0.05)', border: fsColor });
+        ctx.fillStyle = isFs ? Theme.gold : Theme.chalk;
+        ctx.font = Theme.body(15, 700);
+        ctx.fillText(isFs ? '⛶ EXIT FULLSCREEN' : '⛶ ENTER FULLSCREEN', 450, 466);
+        window._pauseFsBtn = { x: 330, y: 440, w: 240, h: 42 };
+    } else {
+        window._pauseFsBtn = null;
+    }
+
     ctx.fillStyle = Theme.chalkDim;
     ctx.font = Theme.body(13, 600);
-    ctx.fillText('Press [ ESC ] or [ P ] to resume', 450, 445);
+    ctx.fillText('Press [ ESC ] or [ P ] to resume', 450, cardH + 150 - 25);
     ctx.restore();
 }
 
