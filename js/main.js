@@ -351,6 +351,7 @@ if (isVSComputer || tournamentMode) {
                
                 matchState = 'MATCH_END';
                 currentState = 'MATCH_END';
+                updateTouchUI(); // hide joystick/shoot buttons — this transition never called it, so the DOM overlay stayed visible after the whistle
                
                 let winnerText = '';
                 if (tournamentMode) {
