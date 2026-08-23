@@ -222,6 +222,12 @@ canvas.addEventListener('pointerdown', (e) => {
         } else if (pos.x >= sfxToggleBtn.x && pos.x <= sfxToggleBtn.x + sfxToggleBtn.w && pos.y >= sfxToggleBtn.y && pos.y <= sfxToggleBtn.y + sfxToggleBtn.h) {
             SoundManager.toggleSFX();
             SoundManager.playSFX('menuClick', 0.3);
+        } else if (window._pauseFsBtn) {
+            const fb = window._pauseFsBtn;
+            if (pos.x >= fb.x && pos.x <= fb.x + fb.w && pos.y >= fb.y && pos.y <= fb.y + fb.h) {
+                SoundManager.playSFX('menuClick', 0.3);
+                if (typeof window.toggleAppFullscreen === 'function') window.toggleAppFullscreen();
+            }
         }
     } else if (currentState === 'MATCH_END') {
         SoundManager.playSFX('menuClick');
