@@ -2055,7 +2055,7 @@ function draw() {
 
         drawScoreboard();
         drawGkTimerUI();
-        if (currentState === 'PLAY') drawPauseButton();
+        if (currentState === 'PLAY' || currentState === 'GOAL_SCORED') drawPauseButton();
 
         if (matchState === 'HALFTIME') {
             ctx.save();
