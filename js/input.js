@@ -1,6 +1,10 @@
 // ===== PRO STRIKER - input.js =====
 console.log('[ProStriker] input.js loaded');
 
+// Which state to restore when un-pausing — PLAY normally, but GOAL_SCORED if
+// the player paused during a goal celebration (see togglePause()).
+let prePauseState = 'PLAY';
+
 window.addEventListener('keydown', (e) => {
     initSoundOnInteraction();
     if ([' ', 'Enter', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Escape', 'p', 'P', 'Shift'].includes(e.key)) {
@@ -16,7 +20,7 @@ window.addEventListener('keydown', (e) => {
         keys[keyLower] = true;
     }
     if (keys.hasOwnProperty(e.key)) keys[e.key] = true;
-    if (keyLower === 'p' && currentState === 'PLAY') togglePause();
+    if (keyLower === 'p' && (currentState === 'PLAY' || currentState === 'GOAL_SCORED')) togglePause();
     if (e.key === 'Escape' && currentState === 'PAUSED') togglePause();
     if (keyLower === 'm') { SoundManager.toggleSFX(); SoundManager.playSFX('menuClick', 0.3); updateTouchUI(); }
     if (keyLower === 'n') { SoundManager.toggleMusic(); SoundManager.playSFX('menuClick', 0.3); updateTouchUI(); }
@@ -127,7 +131,7 @@ canvas.addEventListener('pointerdown', (e) => {
     initSoundOnInteraction();
     const pos = getCanvasTouchPos(e);
 
-    if (currentState === 'PLAY' && pos.x >= 860 && pos.x <= 890 && pos.y >= 15 && pos.y <= 45) {
+    if ((currentState === 'PLAY' || currentState === 'GOAL_SCORED') && pos.x >= 860 && pos.x <= 890 && pos.y >= 15 && pos.y <= 45) {
         SoundManager.playSFX('menuClick');
         togglePause();
         return;
@@ -377,8 +381,18 @@ window.addEventListener('pointerup', () => {
 });
 
 function togglePause() {
-    if (currentState === 'PLAY') { currentState = 'PAUSED'; SoundManager.playSFX('menuClick'); }
-    else if (currentState === 'PAUSED') { currentState = 'PLAY'; SoundManager.playSFX('menuClick'); }
+    // Goal celebrations should be pausable too — remember which state we were
+    // in so resuming goes back to it (GOAL_SCORED just keeps counting its own
+    // banner timer once resumed, so the usual reset-for-kickoff still happens
+    // on schedule instead of being skipped).
+    if (currentState === 'PLAY' || currentState === 'GOAL_SCORED') {
+        prePauseState = currentState;
+        currentState = 'PAUSED';
+        SoundManager.playSFX('menuClick');
+    } else if (currentState === 'PAUSED') {
+        currentState = prePauseState;
+        SoundManager.playSFX('menuClick');
+    }
     updateTouchUI();
 }
 
