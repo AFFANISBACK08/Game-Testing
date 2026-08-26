@@ -1,4 +1,4 @@
-@import url('https://fonts.googleapis.com/css2?family=Outfit:wght@400;500;600;700;800;900&family=Bebas+Neue&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Outfit:wght@400;500;600;700;800;900&display=swap');
 
 * { margin:0; padding:0; box-sizing:border-box; -webkit-touch-callout:none; -webkit-user-select:none; user-select:none; }
 
@@ -6,23 +6,58 @@ html, body {
     overflow: hidden;
     position: fixed;
     width: 100%;
-    height: 100%;
+    /* BUGFIX (iPhone Safari): 100% here inherits from 100vh below, which on
+       iOS Safari measures against the viewport as if the address bar wasn't
+       there — see the .game-wrapper comment below for the full explanation.
+       100dvh (falls back to 100vh on older browsers that don't know it, via
+       the plain declaration first) fixes it here too. */
+    height: 100vh;
+    height: 100dvh;
     touch-action: none;
 }
 
 body {
     background: radial-gradient(circle at center, #0f1720 0%, #06070a 100%);
     display: flex; justify-content: center; align-items: center;
-    min-height: 100vh; font-family: 'Outfit', sans-serif; color: #fff;
+    min-height: 100vh; min-height: 100dvh; font-family: 'Outfit', sans-serif; color: #fff;
     touch-action: none;
 }
 
 .game-wrapper {
+    /* BUGFIX: this used to be capped at min(100vw,900px) x min(100vh,600px),
+       so on any screen bigger than 900x600 (i.e. almost every desktop/
+       laptop, and definitely fullscreen) the wrapper just stopped growing
+       and sat pinned at 900x600 in the middle of the screen — leaving big
+       black bars down the left and right (or top/bottom) exactly like the
+       screenshot. The game's internal drawing is done in a fixed 900x600
+       logical coordinate space (see GAME_W/GAME_H + setupHiDPICanvas in
+       globals.js), so we can't just stretch it — we still need to preserve
+       the 3:2 aspect ratio. Instead of capping both dimensions at fixed
+       pixel values, we size each dimension against the OTHER dimension of
+       the viewport: width is capped at "however wide the screen is at a
+       3:2 ratio for the available height" and vice versa. Whichever axis
+       is the tighter constraint wins, and the wrapper always grows to fill
+       it — no more fixed 900x600 ceiling.
+
+       BUGFIX 2 (iPhone Safari address bar): 100vh on iOS Safari is measured
+       against the viewport as though the address bar (and, in landscape,
+       the bottom Safari toolbar) weren't occupying screen space — because
+       iPhone Safari has no Fullscreen API to hide it (see conversation),
+       the bar is ALWAYS there taking up real pixels. The result: this box
+       used to compute a height a bit taller than what was actually visible,
+       clipping the bottom of the game off-screen and forcing a scroll to
+       see it — exactly the "give it a bit of scroll if not fullscreen"
+       symptom. 100dvh (dynamic viewport height) is a newer unit that
+       continuously measures the ACTUAL visible viewport, address bar and
+       all, and is supported in all current browsers including iOS Safari
+       15.4+. Declaring 100vh first keeps ancient browsers that don't know
+       dvh working via graceful degradation; 100dvh overrides it everywhere
+       that understands the newer unit. */
     position: relative;
-    width: min(100vw, 900px);
-    height: min(100vh, 600px);
-    max-width: 100vw;
-    max-height: 100vh;
+    width: min(100vw, calc(100vh * 3 / 2));
+    width: min(100vw, calc(100dvh * 3 / 2));
+    height: min(100vh, calc(100vw * 2 / 3));
+    height: min(100dvh, calc(100vw * 2 / 3));
     aspect-ratio: 3/2;
     border-radius: 16px;
     overflow: hidden;
@@ -85,20 +120,30 @@ canvas { display: block; width: 100%; height: 100%; background: #1a1a2e; image-r
 .celebration-overlay.active { opacity:1; }
 
 .touch-controls {
-    position: absolute; top:0; left:0; width:100%; height:100%;
+    /* Fixed to the real viewport (not absolute-within-gameWrapper) — see the
+       comment on this element in index.html for why: it needs to reach the
+       true screen edges even when the 3:2 game box is letterboxed. */
+    /* BUGFIX (iPhone Safari): same dvh fix as .game-wrapper above — without
+       it, the bottom joystick/shoot buttons could sit slightly below the
+       actually-visible area behind Safari's toolbar. */
+    position: fixed; top:0; left:0; width:100vw; height:100vh; height:100dvh;
     pointer-events: none; display: none; z-index:20;
 }
 .touch-controls.is-active { display:block !important; }
 
 .joystick-base {
     position: absolute;
-    width: clamp(60px, 10vw, 110px);
-    height: clamp(60px, 10vw, 110px);
+    /* BUGFIX: bumped up from clamp(60px,10vw,110px) — on phone this measured
+       out a little small/cramped right in the corner for a thumb to rest on
+       comfortably. ~15% bigger across the board, same responsive clamp shape. */
+    width: clamp(70px, 12vw, 125px);
+    height: clamp(70px, 12vw, 125px);
     background: rgba(255,255,255,0.08);
     border: 2px solid rgba(255,255,255,0.25);
     border-radius: 50%;
     display: flex; justify-content: center; align-items: center;
     pointer-events: auto; touch-action: none;
+    -webkit-backdrop-filter: blur(8px);
     backdrop-filter: blur(8px);
     box-shadow: 0 0 30px rgba(0,0,0,0.5);
     transition: all 0.3s ease;
@@ -106,10 +151,19 @@ canvas { display: block; width: 100%; height: 100%; background: #1a1a2e; image-r
 }
 .joystick-base:active { transform:scale(0.95); }
 .joystick-stick {
+    /* BUGFIX (iPhone): this used to be background-only at 60% opacity,
+       relying on the base's translucent glass (backdrop-filter blur) behind
+       it for contrast. backdrop-filter support/behavior is inconsistent
+       across iOS Safari versions and can render weaker or not at all in
+       some stacking contexts — when it does, this stick nearly disappears
+       against the base, which is exactly "I can't see the joystick move."
+       Added a solid border + shadow so the stick reads clearly by its own
+       outline regardless of what's rendering behind it, on any device. */
     width:38%; height:38%;
-    background: rgba(255,255,255,0.6);
+    background: rgba(255,255,255,0.85);
+    border: 1.5px solid rgba(255,255,255,0.95);
     border-radius:50%;
-    box-shadow: 0 0 15px rgba(255,255,255,0.2);
+    box-shadow: 0 0 12px rgba(0,0,0,0.4), 0 0 15px rgba(255,255,255,0.3);
     pointer-events: none;
     transition: transform 0.05s linear;
 }
@@ -118,12 +172,13 @@ canvas { display: block; width: 100%; height: 100%; background: #1a1a2e; image-r
 
 .shoot-btn {
     position: absolute;
-    width: clamp(44px, 7vw, 75px);
-    height: clamp(44px, 7vw, 75px);
+    /* BUGFIX: bumped up to match the joystick — was clamp(44px,7vw,75px). */
+    width: clamp(52px, 8.5vw, 88px);
+    height: clamp(52px, 8.5vw, 88px);
     background: radial-gradient(circle, rgba(241,196,15,0.8) 0%, rgba(211,84,0,0.8) 100%);
     border: 3px solid rgba(255,255,255,0.5);
     border-radius:50%;
-    font-size: clamp(20px, 3.5vw, 36px);
+    font-size: clamp(22px, 4vw, 40px);
     display: flex; justify-content: center; align-items: center;
     cursor: pointer; pointer-events: auto; touch-action: none;
     box-shadow: 0 6px 24px rgba(241,196,15,0.14), 0 0 40px rgba(241,196,15,0.12);
@@ -134,13 +189,17 @@ canvas { display: block; width: 100%; height: 100%; background: #1a1a2e; image-r
 .p1-shoot { background: radial-gradient(circle at 30% 30%, #ff6b6b, #c0392b) !important; border-color:#ff6b6b !important; box-shadow:0 0 40px rgba(255,50,50,0.25) !important; }
 .p2-shoot { background: radial-gradient(circle at 30% 30%, #6bc5ff, #2980b9) !important; border-color:#6bc5ff !important; box-shadow:0 0 40px rgba(50,150,255,0.25) !important; }
 
-.mode-1v1 .p1-joy   { bottom:20px; left:20px; }
-.mode-1v1 .p1-shoot { top:20px; left:20px; }
-.mode-1v1 .p2-joy   { top:20px; right:20px; }
-.mode-1v1 .p2-shoot { bottom:20px; right:20px; }
+/* BUGFIX: nudged in from 20px to 16px now that the controls are bigger —
+   keeps them from feeling like they're jammed into the exact pixel corner,
+   while the bigger touch target still stays fully on-screen with room to
+   spare against the safe-area padding on .touch-controls below. */
+.mode-1v1 .p1-joy   { bottom:16px; left:16px; }
+.mode-1v1 .p1-shoot { top:16px; left:16px; }
+.mode-1v1 .p2-joy   { top:16px; right:16px; }
+.mode-1v1 .p2-shoot { bottom:16px; right:16px; }
 
-.mode-pve .p1-joy   { bottom:20px; left:20px; }
-.mode-pve .p1-shoot { bottom:20px; right:20px; }
+.mode-pve .p1-joy   { bottom:16px; left:16px; }
+.mode-pve .p1-shoot { bottom:16px; right:16px; }
 .mode-pve .p2-joy, .mode-pve .p2-shoot { display:none !important; }
 
 /* Push controls clear of notches / home-indicator bars when fullscreen on mobile.
@@ -151,33 +210,22 @@ canvas { display: block; width: 100%; height: 100%; background: #1a1a2e; image-r
              env(safe-area-inset-bottom, 0px) env(safe-area-inset-left, 0px);
 }
 
-.fullscreen-btn {
-    position: absolute;
-    top: calc(12px + env(safe-area-inset-top, 0px));
-    right: calc(12px + env(safe-area-inset-right, 0px));
-    width: 38px;
-    height: 38px;
-    background: rgba(15,20,25,0.7);
-    border: 1.5px solid rgba(255,255,255,0.25);
-    border-radius: 50%;
-    color: rgba(255,255,255,0.85);
-    display: none;
-    justify-content: center;
-    align-items: center;
-    z-index: 50;
-    cursor: pointer;
-    pointer-events: auto;
-    touch-action: manipulation;
-    backdrop-filter: blur(6px);
-    -webkit-backdrop-filter: blur(6px);
-    transition: transform 0.15s ease, background 0.15s ease;
-}
-.fullscreen-btn:active { transform: scale(0.88); background: rgba(15,20,25,0.9); }
+/* NOTE (CrazyGames build): .fullscreen-btn styling removed — this build's
+   index.html no longer includes the button element. CrazyGames prohibits
+   custom in-game fullscreen buttons and handles fullscreen entirely on
+   their end (see requirements doc). Leaving unused CSS for a removed
+   element behind isn't a functional problem, but it's dead weight worth
+   dropping for a clean submission build. */
 
 @media (max-width: 420px) {
+    /* BUGFIX: these !important overrides were still using the OLD sizes
+       (55px/40px), which on real phones (almost all under 420px wide) was
+       actually the size winning over the bigger clamp() values above —
+       bumping the base .joystick-base/.shoot-btn rules alone wouldn't have
+       been felt on an actual phone at all. Bumped ~15% to match. */
     .joystick-base {
-        width: 55px !important;
-        height: 55px !important;
+        width: 64px !important;
+        height: 64px !important;
         opacity: 0.6;
         border-width: 1.5px;
     }
@@ -186,29 +234,32 @@ canvas { display: block; width: 100%; height: 100%; background: #1a1a2e; image-r
         height: 30%;
     }
     .shoot-btn {
-        width: 40px !important;
-        height: 40px !important;
-        font-size: 18px !important;
+        width: 48px !important;
+        height: 48px !important;
+        font-size: 21px !important;
         border-width: 2px;
         opacity: 0.7;
     }
-    .mode-1v1 .p1-joy   { bottom:10px; left:10px; }
-    .mode-1v1 .p1-shoot { top:10px; left:10px; }
-    .mode-1v1 .p2-joy   { top:10px; right:10px; }
-    .mode-1v1 .p2-shoot { bottom:10px; right:10px; }
-    .mode-pve .p1-joy   { bottom:10px; left:10px; }
-    .mode-pve .p1-shoot { bottom:10px; right:10px; }
+    .mode-1v1 .p1-joy   { bottom:12px; left:12px; }
+    .mode-1v1 .p1-shoot { top:12px; left:12px; }
+    .mode-1v1 .p2-joy   { top:12px; right:12px; }
+    .mode-1v1 .p2-shoot { bottom:12px; right:12px; }
+    .mode-pve .p1-joy   { bottom:12px; left:12px; }
+    .mode-pve .p1-shoot { bottom:12px; right:12px; }
 }
 
-.game-wrapper {
-    position: relative;
-    width: min(100vw, 900px);
-    height: min(100vh, 600px);
-    max-width: 100vw;
-    max-height: 100vh;
-    aspect-ratio: 3/2;
-}
+/* BUGFIX: this second .game-wrapper rule was declared later in the
+   cascade than the real one above, so — despite that rule being fixed to
+   fill the screen — this stale duplicate (still using the old 900x600 cap)
+   was the one actually winning and pinning the game back down to 900x600
+   with black bars on every screen bigger than that. Removed the
+   redeclared sizing here entirely so the single source of truth above is
+   the only one in effect; the media query below (unrelated to sizing) is
+   kept as-is. */
 @media (max-width: 600px) {
-    .joystick-base { width: 55px !important; height: 55px !important; }
-    .shoot-btn { width: 40px !important; height: 40px !important; font-size: 18px !important; }
+    /* BUGFIX: kept in sync with the 420px breakpoint above — was still
+       55px/40px here too, silently undoing the bigger sizing on any phone
+       between 421-600px wide. */
+    .joystick-base { width: 64px !important; height: 64px !important; }
+    .shoot-btn { width: 48px !important; height: 48px !important; font-size: 21px !important; }
 }
