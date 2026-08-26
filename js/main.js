@@ -178,7 +178,16 @@ function initMatch(teamAId, teamBId) {
 
     aiTimer = 0; aiDribbleTime = 0; aiPassCooldown = 0; aiHoldBallTimer = 0;
     aiState = 'CHASE'; aiStateTimer = 0; gkTimer = 0;
-    aiStartDelay = 42; aiReactionTimer = 20; // 42 frames ≈ 0.7s at 60fps
+    // ===== BUGFIX: these were hardcoded (42 / 20) for every difficulty, so
+    // EASY and WORLD_CLASS "woke up" and reacted to the ball at the exact
+    // same speed even though ai.js defines very different reactionDelay /
+    // aiStartDelay per tier. Now pulled from the active config so higher
+    // difficulties genuinely react faster, as intended.
+    {
+        const _c = getAIConfigByDifficulty(difficulty);
+        aiStartDelay = _c.aiStartDelay;
+        aiReactionTimer = _c.reactionDelay;
+    }
     activeLocks.red = { player: null, timer: 0 };
     activeLocks.blue = { player: null, timer: 0 };
 }
@@ -190,7 +199,12 @@ function resetField() {
     ball.trail = [];
     aiTimer = 0; aiDribbleTime = 0; aiPassCooldown = 0; aiHoldBallTimer = 0;
     aiState = 'CHASE'; aiStateTimer = 0; gkTimer = 0;
-    aiStartDelay = 42; aiReactionTimer = 20; // 42 frames ≈ 0.7s at 60fps
+    // ===== BUGFIX: see note in initMatch() — was hardcoded (42 / 20).
+    {
+        const _c = getAIConfigByDifficulty(difficulty);
+        aiStartDelay = _c.aiStartDelay;
+        aiReactionTimer = _c.reactionDelay;
+    }
     activeLocks.red = { player: null, timer: 0 };
     activeLocks.blue = { player: null, timer: 0 };
     let outfielders = players.filter(p => !p.isGk);
@@ -246,6 +260,14 @@ function update(dt) {
 
         tournamentPendingMatch = null;
         currentState = 'TOURNAMENT_RESULT';
+        // BUGFIX: this transition out of PLAY happens inside the game loop
+        // (update()), not from an input.js click/key handler, so it never
+        // used to call updateTouchUI(). That left the joystick/shoot touch
+        // controls from the just-finished match visibly stuck on screen
+        // over the tournament result screen. Every other state exit already
+        // goes through a handler that calls updateTouchUI() — this was the
+        // one gap.
+        updateTouchUI();
         SoundManager.updateMusicForState(currentState);
         return;
     }
@@ -292,6 +314,10 @@ function update(dt) {
                 SoundManager.playSFX('whistleStop', 0.7);
                 matchState = 'HALFTIME';
                 halftimeTimer = HALFTIME_BREAK;
+                // BUGFIX: same class of bug as MATCH_END/TOURNAMENT_RESULT above —
+                // reached from inside the game loop, so the touch controls never
+                // got hidden for the halftime break without this.
+                updateTouchUI();
                 return;
             } else {
                 // ===== FULL TIME =====
@@ -351,7 +377,12 @@ if (isVSComputer || tournamentMode) {
                
                 matchState = 'MATCH_END';
                 currentState = 'MATCH_END';
-                updateTouchUI(); // hide joystick/shoot buttons — this transition never called it, so the DOM overlay stayed visible after the whistle
+                // BUGFIX: same issue as the TOURNAMENT_RESULT transition above —
+                // full-time is reached inside the game loop, so without this call
+                // the touch joystick/shoot buttons from the match stayed visible
+                // on top of the match-end screen until some unrelated tap/key
+                // happened to trigger updateTouchUI() elsewhere.
+                updateTouchUI();
                
                 let winnerText = '';
                 if (tournamentMode) {
@@ -436,7 +467,7 @@ if (isVSComputer || tournamentMode) {
             activeRed.y = Math.max(150+activeRed.radius, Math.min(450-activeRed.radius, activeRed.y));
         } else {
             activeRed.x = Math.max(25+activeRed.radius, Math.min(875-activeRed.radius, activeRed.x));
-            activeRed.y = Math.max(activeRed.radius, Math.min(canvas.height-activeRed.radius, activeRed.y));
+            activeRed.y = Math.max(activeRed.radius, Math.min(GAME_H-activeRed.radius, activeRed.y));
             if (blueGkHasBall) resolveBoxCollision(activeRed, {minX:775, maxX:875, minY:150, maxY:450});
         }
     }
@@ -495,13 +526,18 @@ if (isVSComputer || tournamentMode) {
                             aiTargetOffset = { x: (Math.random()-0.5)*30, y: (Math.random()-0.5)*30 };
                             aiCommitTimer = 30;
                         } else if (ballInAIHalf) {
-                            if (roll < aiCfg.retreatRate) { aiState = 'RETREAT'; aiCommitTimer = 25; }
-                            else if (roll < (aiCfg.retreatRate + aiCfg.chaseRate*0.7)) { aiState = 'CHASE'; aiTargetOffset = { x:(Math.random()-0.5)*40, y:(Math.random()-0.5)*40 }; aiCommitTimer = 20; }
-                            else { aiState = 'HESITATE'; aiCommitTimer = 15; }
+                            // BUGFIX: hesitateRate from ai.js was never actually consulted —
+                            // the HESITATE branch was just "whatever's left over" from the
+                            // other two rolls, so lower-difficulty AIs didn't hesitate more
+                            // often like their config implies. Now hesitateRate directly
+                            // gates a dedicated roll before the chase/retreat split.
+                            if (roll < aiCfg.hesitateRate) { aiState = 'HESITATE'; aiCommitTimer = 15; }
+                            else if (roll < aiCfg.hesitateRate + aiCfg.retreatRate) { aiState = 'RETREAT'; aiCommitTimer = 25; }
+                            else { aiState = 'CHASE'; aiTargetOffset = { x:(Math.random()-0.5)*40, y:(Math.random()-0.5)*40 }; aiCommitTimer = 20; }
                         } else if (ballInHumanHalf) {
-                            if (roll < aiCfg.chaseRate) { aiState = 'CHASE'; aiTargetOffset = { x:(Math.random()-0.5)*50, y:(Math.random()-0.5)*50 }; aiCommitTimer = 30; }
-                            else if (roll < (aiCfg.chaseRate + aiCfg.retreatRate*0.5)) { aiState = 'RETREAT'; aiCommitTimer = 15; }
-                            else { aiState = 'HESITATE'; aiCommitTimer = 10; }
+                            if (roll < aiCfg.hesitateRate) { aiState = 'HESITATE'; aiCommitTimer = 10; }
+                            else if (roll < aiCfg.hesitateRate + aiCfg.chaseRate) { aiState = 'CHASE'; aiTargetOffset = { x:(Math.random()-0.5)*50, y:(Math.random()-0.5)*50 }; aiCommitTimer = 30; }
+                            else { aiState = 'RETREAT'; aiCommitTimer = 15; }
                         }
                         if (aiCommitTimer < 15) aiCommitTimer = 15;
                         if (aiState === 'CHASE') { aiTargetX = ball.x + aiTargetOffset.x; aiTargetY = ball.y + aiTargetOffset.y; }
@@ -518,6 +554,10 @@ if (isVSComputer || tournamentMode) {
                             if (isBallLoose) moveSpeed *= 1.3;
                             if (aiState === 'CHASE' && aiCommitTimer > 20) moveSpeed *= 1.1;
                             if (distToTarget > 100) moveSpeed *= 1.2;
+                            // BUGFIX: chaseAggressiveness was defined per-difficulty in ai.js
+                            // (1.0 on EASY up to 2.0 on WORLD_CLASS) but never used anywhere —
+                            // higher difficulties now close down loose balls noticeably harder.
+                            if (aiState === 'CHASE' && isBallLoose) moveSpeed *= (0.7 + aiCfg.chaseAggressiveness * 0.3);
                             nextX += (dx/distToTarget)*moveSpeed;
                             nextY += (dy/distToTarget)*moveSpeed;
                         }
@@ -538,7 +578,7 @@ if (isVSComputer || tournamentMode) {
             activeBlue.y = Math.max(150+activeBlue.radius, Math.min(450-activeBlue.radius, activeBlue.y));
         } else {
             activeBlue.x = Math.max(25+activeBlue.radius, Math.min(875-activeBlue.radius, activeBlue.x));
-            activeBlue.y = Math.max(activeBlue.radius, Math.min(canvas.height-activeBlue.radius, activeBlue.y));
+            activeBlue.y = Math.max(activeBlue.radius, Math.min(GAME_H-activeBlue.radius, activeBlue.y));
             if (redGkHasBall) resolveBoxCollision(activeBlue, {minX:25, maxX:125, minY:150, maxY:450});
         }
     }
@@ -608,13 +648,21 @@ if (isVSComputer || tournamentMode) {
             }
         }
         if (ball.y <= ball.radius) { ball.y = ball.radius; ball.vy *= -1; }
-        else if (ball.y >= canvas.height - ball.radius) { ball.y = canvas.height - ball.radius; ball.vy *= -1; }
+        else if (ball.y >= GAME_H - ball.radius) { ball.y = GAME_H - ball.radius; ball.vy *= -1; }
 
         if (ball.x - ball.radius <= 25) {
             if (ball.y >= 200 && ball.y <= 400) {
                 if (ball.y - ball.radius <= 200) { ball.y = 200 + ball.radius; ball.vy *= -1; }
                 else if (ball.y + ball.radius >= 400) { ball.y = 400 - ball.radius; ball.vy *= -1; }
-                if (ball.x - ball.radius <= 5) {
+                // BUGFIX: this used to require the ball to reach x<=5 (deep past the
+                // drawn goal line at x=25 and the goal posts) before counting a goal.
+                // There's no net mesh drawn to justify that extra 20px of travel, so
+                // the ball would visibly cross the line, keep going toward the canvas
+                // edge, and could bounce off a post or get squeezed against the edge
+                // before ever registering — goals felt delayed or occasionally never
+                // triggered. Now it scores right at the line, matching the pitch
+                // stroke/posts the player actually sees.
+                if (ball.x - ball.radius <= 25) {
                     score.blue++;
                     let scorerName = 'BLUE TEAM SCORES!';
                     if (tournamentMode && tournamentPendingMatch) {
@@ -640,7 +688,9 @@ if (isVSComputer || tournamentMode) {
             if (ball.y >= 200 && ball.y <= 400) {
                 if (ball.y - ball.radius <= 200) { ball.y = 200 + ball.radius; ball.vy *= -1; }
                 else if (ball.y + ball.radius >= 400) { ball.y = 400 - ball.radius; ball.vy *= -1; }
-                if (ball.x + ball.radius >= 895) {
+                // BUGFIX: see matching note on the blue goal above — was 895, now
+                // scores right at the drawn goal line (x=875) instead of 20px deeper.
+                if (ball.x + ball.radius >= 875) {
                     score.red++;
                     let scorerName = 'RED TEAM SCORES!';
                     if (tournamentMode && tournamentPendingMatch) {
@@ -674,7 +724,13 @@ if (isVSComputer || tournamentMode) {
                 ball.vx = 0; ball.vy = 0;
                 ball.trail = [];
                 if (p.isGk) {
-                    gkTimer = 360;
+                    // ===== BUGFIX: was always 360 frames regardless of difficulty.
+                    // The AI blue GK now holds for gkHoldTime from the active
+                    // difficulty config (e.g. WORLD_CLASS releases faster at 320
+                    // vs EASY's 360), matching ai.js's intent. The human red GK
+                    // always gets the full 360 since the player controls release
+                    // via the shoot key anyway.
+                    gkTimer = (gameMode === 'pve' && p.team === 'blue') ? getAIConfigByDifficulty(difficulty).gkHoldTime : 360;
                     if (prevOwner && prevOwner.team !== p.team) {
                         let shooter = prevOwner;
                         let target = null;
@@ -708,7 +764,8 @@ if (isVSComputer || tournamentMode) {
                 window._gkStealInProgress = true;
                 let offender = ball.owner;
                 ball.owner = opponentGk;
-                gkTimer = 360;
+                // Same difficulty-aware gkHoldTime fix as above.
+                gkTimer = (gameMode === 'pve' && opponentGk.team === 'blue') ? getAIConfigByDifficulty(difficulty).gkHoldTime : 360;
                 ball.trail = [];
                 let target = null;
                 if (opponentGk.team === 'blue') target = getEjectTarget(offender, {minX:775, maxX:875, minY:150, maxY:450});
@@ -734,7 +791,8 @@ if (isVSComputer || tournamentMode) {
                     ball.vy = Math.sin(tackleAngle) * 9;
                     ball.cooldownPlayer = tackler;
                     ball.cooldownTimer = 15;
-                    aiReactionTimer = 20;
+                    // BUGFIX: was hardcoded 20 — now scales with difficulty's reactionDelay.
+                    aiReactionTimer = getAIConfigByDifficulty(difficulty).reactionDelay;
                     SoundManager.playSFX('kick', 0.6);
                     matchStats.tackles[defender.team]++;
                 }
@@ -762,7 +820,8 @@ function shootBall(passer) {
     ball.owner = null;
     ball.trail = [];
     if (passer.isGk) gkTimer = 0;
-    aiReactionTimer = 20;
+    // BUGFIX: was hardcoded 20 — now scales with difficulty's reactionDelay.
+    aiReactionTimer = getAIConfigByDifficulty(difficulty).reactionDelay;
 }
 
 function doAiGkPass(gk) {
@@ -822,6 +881,13 @@ function gameLoop(timestamp) {
     lastTime = timestamp;
     update(dt);
     draw();
+    // Cheap per-frame safety net: guarantees the joystick/shoot controls can
+    // never stay stuck on screen for more than one frame after leaving a
+    // match, even if some future code path forgets to call updateTouchUI()
+    // after changing currentState (see updateTouchUI in input.js for the
+    // full explanation — this was exactly the "buttons stuck after a vs-
+    // Computer match" bug).
+    if (typeof syncTouchControlsVisibility === 'function') syncTouchControlsVisibility();
     requestAnimationFrame(gameLoop);
 }
 
