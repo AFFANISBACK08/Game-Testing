@@ -1,13 +1,16 @@
 // ===== PRO STRIKER - input.js =====
 console.log('[ProStriker] input.js loaded');
 
-// Which state to restore when un-pausing — PLAY normally, but GOAL_SCORED if
-// the player paused during a goal celebration (see togglePause()).
-let prePauseState = 'PLAY';
-
 window.addEventListener('keydown', (e) => {
     initSoundOnInteraction();
-    if ([' ', 'Enter', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Escape', 'p', 'P', 'Shift'].includes(e.key)) {
+    // NOTE (CrazyGames requirement): Escape is deliberately excluded from
+    // this preventDefault list. CrazyGames reserves Escape to exit their
+    // own fullscreen mode — calling preventDefault() on it here would block
+    // that from working while the player is in fullscreen on their site.
+    // 'P' (and Backspace, handled per-state below) remain the primary way
+    // to pause/back-out; Escape still triggers the same game actions below,
+    // it's just no longer prevented from also reaching the browser/portal.
+    if ([' ', 'Enter', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'p', 'P', 'Shift'].includes(e.key)) {
         e.preventDefault();
     }
     const keyLower = e.key.toLowerCase();
@@ -20,10 +23,29 @@ window.addEventListener('keydown', (e) => {
         keys[keyLower] = true;
     }
     if (keys.hasOwnProperty(e.key)) keys[e.key] = true;
-    if (keyLower === 'p' && (currentState === 'PLAY' || currentState === 'GOAL_SCORED')) togglePause();
+    // 'P' is the primary pause key (works from any in-match state, no
+    // platform conflicts). Escape still pauses too, for players used to it
+    // — see the preventDefault note above for why it's no longer blocked.
+    if (keyLower === 'p' && currentState === 'PLAY') togglePause();
     if (e.key === 'Escape' && currentState === 'PAUSED') togglePause();
     if (keyLower === 'm') { SoundManager.toggleSFX(); SoundManager.playSFX('menuClick', 0.3); updateTouchUI(); }
     if (keyLower === 'n') { SoundManager.toggleMusic(); SoundManager.playSFX('menuClick', 0.3); updateTouchUI(); }
+
+    // Keyboard support for the exit-tournament confirm overlay: Escape cancels
+    // (stays in the tournament), Enter confirms (same as tapping YES).
+    if (window._confirmExitTournament) {
+        if (e.key === 'Escape') {
+            window._confirmExitTournament = false;
+            SoundManager.playSFX('menuClick');
+        } else if (e.key === 'Enter') {
+            window._confirmExitTournament = false;
+            tournamentMode = false;
+            currentState = 'MENU';
+            SoundManager.playSFX('menuClick');
+            updateTouchUI();
+        }
+        return;
+    }
 
     if (currentState === 'MENU') {
         if (e.key === '1') { SoundManager.playSFX('menuClick'); selectMode('1v1'); }
@@ -39,14 +61,24 @@ window.addEventListener('keydown', (e) => {
         if (e.key === 'i' || e.key === 'I') { SoundManager.playSFX('confirm'); difficulty = 'ELITE'; selectMode('pve'); }
         if (e.key === 'w' || e.key === 'W') { SoundManager.playSFX('confirm'); difficulty = 'WORLD_CLASS'; selectMode('pve'); }
         if (e.key === 'Escape' || e.key === 'Backspace') { SoundManager.playSFX('menuClick'); currentState = 'MENU'; }
-    } else if (currentState === 'INSTRUCTIONS' || currentState === 'SETTINGS' || currentState === 'STATS') {
+    } else if (currentState === 'SETTINGS') {
+        // BUGFIX: SETTINGS used to be caught by the combined
+        // "INSTRUCTIONS || SETTINGS || STATS" branch above (which only handled
+        // Escape/Backspace), so this dedicated branch's ArrowUp/ArrowDown half-
+        // duration keys could never run — that `else if` was unreachable dead
+        // code. SETTINGS now gets its own branch with both Escape/Backspace AND
+        // the arrow-key duration controls.
         if (e.key === 'Escape' || e.key === 'Backspace') {
             SoundManager.playSFX('menuClick');
             currentState = 'MENU';
         }
-    } else if (currentState === 'SETTINGS') {
         if (e.key === 'ArrowUp') halfDuration = Math.min(120, halfDuration + 5);
         if (e.key === 'ArrowDown') halfDuration = Math.max(15, halfDuration - 5);
+    } else if (currentState === 'INSTRUCTIONS' || currentState === 'STATS') {
+        if (e.key === 'Escape' || e.key === 'Backspace') {
+            SoundManager.playSFX('menuClick');
+            currentState = 'MENU';
+        }
     } else if (currentState === 'MATCH_END') {
     if (e.key === 'Enter') {  // Only Enter works now
         SoundManager.playSFX('menuClick');
@@ -122,8 +154,8 @@ window.addEventListener('keyup', (e) => {
 function getCanvasTouchPos(e) {
     const rect = canvas.getBoundingClientRect();
     const touch = e.touches ? e.touches[0] : e;
-    const scaleX = canvas.width / rect.width;
-    const scaleY = canvas.height / rect.height;
+    const scaleX = GAME_W / rect.width;
+    const scaleY = GAME_H / rect.height;
     return { x: (touch.clientX - rect.left) * scaleX, y: (touch.clientY - rect.top) * scaleY };
 }
 
@@ -131,31 +163,90 @@ canvas.addEventListener('pointerdown', (e) => {
     initSoundOnInteraction();
     const pos = getCanvasTouchPos(e);
 
-    if ((currentState === 'PLAY' || currentState === 'GOAL_SCORED') && pos.x >= 860 && pos.x <= 890 && pos.y >= 15 && pos.y <= 45) {
+    // ===== EXIT-TOURNAMENT CONFIRMATION OVERLAY =====
+    // Intercepts all clicks while the "are you sure?" overlay (added as a
+    // bugfix for the old one-tap-and-you're-out group stage exit) is open,
+    // so nothing underneath it can be accidentally triggered.
+    if (window._confirmExitTournament) {
+        const yesBtn = window._confirmExitYesBtn;
+        const noBtn = window._confirmExitNoBtn;
+        if (yesBtn && pos.x >= yesBtn.x && pos.x <= yesBtn.x + yesBtn.w &&
+            pos.y >= yesBtn.y && pos.y <= yesBtn.y + yesBtn.h) {
+            SoundManager.playSFX('menuClick');
+            window._confirmExitTournament = false;
+            tournamentMode = false;
+            currentState = 'MENU';
+            updateTouchUI();
+            return;
+        }
+        if (noBtn && pos.x >= noBtn.x && pos.x <= noBtn.x + noBtn.w &&
+            pos.y >= noBtn.y && pos.y <= noBtn.y + noBtn.h) {
+            SoundManager.playSFX('menuClick');
+            window._confirmExitTournament = false;
+            return;
+        }
+        // Click landed outside both buttons — treat as "cancel", don't
+        // fall through to whatever's underneath the overlay.
+        return;
+    }
+
+    if (currentState === 'PLAY' && pos.x >= 860 && pos.x <= 890 && pos.y >= 15 && pos.y <= 45) {
         SoundManager.playSFX('menuClick');
         togglePause();
         return;
     }
 
     if (currentState === 'MENU') {
-        if (pos.x >= 280 && pos.x <= 620 && pos.y >= 202 && pos.y <= 246) {
-            SoundManager.playSFX('menuClick');
-            selectMode('1v1');
-        } else if (pos.x >= 280 && pos.x <= 620 && pos.y >= 257 && pos.y <= 301) {
-            SoundManager.playSFX('menuClick');
-            currentState = 'DIFFICULTY_SELECT';
-        } else if (pos.x >= 280 && pos.x <= 620 && pos.y >= 312 && pos.y <= 356) {
-            SoundManager.playSFX('menuClick');
-            currentState = 'INSTRUCTIONS';
-        } else if (pos.x >= 280 && pos.x <= 620 && pos.y >= 367 && pos.y <= 411) {
-            SoundManager.playSFX('menuClick');
-            currentState = 'SETTINGS';
-        } else if (pos.x >= 280 && pos.x <= 620 && pos.y >= 422 && pos.y <= 466) {
-            SoundManager.playSFX('menuClick');
-            currentState = 'STATS';
-        } else if (pos.x >= 280 && pos.x <= 620 && pos.y >= 477 && pos.y <= 521) {
-            SoundManager.playSFX('menuClick');
-            startTournamentMenu();
+
+        const buttons = window._menuButtons || [];
+
+        for (let i = 0; i < buttons.length; i++) {
+
+            const btn = buttons[i];
+
+            if (
+                pos.x >= btn.x &&
+                pos.x <= btn.x + btn.w &&
+                pos.y >= btn.y &&
+                pos.y <= btn.y + btn.h
+            ) {
+
+                SoundManager.playSFX(
+                    'menuClick'
+                );
+
+                switch (i) {
+                    case 0:
+                        selectMode('1v1');
+                        break;
+
+                    case 1:
+                        currentState =
+                            'DIFFICULTY_SELECT';
+                        break;
+
+                    case 2:
+                        currentState =
+                            'INSTRUCTIONS';
+                        break;
+
+                    case 3:
+                        currentState =
+                            'SETTINGS';
+                        break;
+
+                    case 4:
+                        currentState =
+                            'STATS';
+                        break;
+
+                    case 5:
+                        startTournamentMenu();
+                        break;
+                }
+
+                return;
+            }
         }
     } else if (currentState === 'DIFFICULTY_SELECT') {
         if (window._difficultyBtns) {
@@ -169,7 +260,7 @@ canvas.addEventListener('pointerdown', (e) => {
                 }
             }
         }
-        const diffBack = window._diffBackBtn || { x: 350, y: 410, w: 200, h: 45 };
+        const diffBack = window._diffBackBtn || { x: 350, y: 425, w: 200, h: 45 };
         if (pos.x >= diffBack.x && pos.x <= diffBack.x + diffBack.w && 
             pos.y >= diffBack.y && pos.y <= diffBack.y + diffBack.h) {
             SoundManager.playSFX('menuClick');
@@ -226,12 +317,6 @@ canvas.addEventListener('pointerdown', (e) => {
         } else if (pos.x >= sfxToggleBtn.x && pos.x <= sfxToggleBtn.x + sfxToggleBtn.w && pos.y >= sfxToggleBtn.y && pos.y <= sfxToggleBtn.y + sfxToggleBtn.h) {
             SoundManager.toggleSFX();
             SoundManager.playSFX('menuClick', 0.3);
-        } else if (window._pauseFsBtn) {
-            const fb = window._pauseFsBtn;
-            if (pos.x >= fb.x && pos.x <= fb.x + fb.w && pos.y >= fb.y && pos.y <= fb.y + fb.h) {
-                SoundManager.playSFX('menuClick', 0.3);
-                if (typeof window.toggleAppFullscreen === 'function') window.toggleAppFullscreen();
-            }
         }
     } else if (currentState === 'MATCH_END') {
         SoundManager.playSFX('menuClick');
@@ -326,9 +411,12 @@ canvas.addEventListener('pointerdown', (e) => {
         const backBtn = window._tournamentGroupBackBtn;
         if (backBtn && pos.x >= backBtn.x && pos.x <= backBtn.x + backBtn.w && 
             pos.y >= backBtn.y && pos.y <= backBtn.y + backBtn.h) {
+            // BUGFIX: exiting used to happen instantly on a single tap of a
+            // tiny button, silently abandoning an in-progress tournament.
+            // Now it opens a confirm overlay (drawn in renderer.js) instead
+            // of leaving immediately.
             SoundManager.playSFX('menuClick');
-            currentState = 'TOURNAMENT_MENU';
-            updateTouchUI();
+            window._confirmExitTournament = true;
             return;
         }
     } else if (currentState === 'TOURNAMENT_BRACKET') {
@@ -369,30 +457,90 @@ canvas.addEventListener('pointerdown', (e) => {
 });
 
 canvas.addEventListener('pointermove', (e) => {
-    const pos = getCanvasTouchPos(e);
-    if (isDraggingSlider && currentState === 'SETTINGS') {
-        updateSliderFromPointer(pos.x);
+
+    const pos =
+        getCanvasTouchPos(e);
+
+    // ------------------------------------------------------------
+    // MAIN MENU HOVER
+    // ------------------------------------------------------------
+
+    if (currentState === 'MENU') {
+
+        const buttons =
+            window._menuButtons || [];
+
+        let newHover = -1;
+
+        for (let i = 0; i < buttons.length; i++) {
+
+            const btn = buttons[i];
+
+            if (
+                pos.x >= btn.x &&
+                pos.x <= btn.x + btn.w &&
+                pos.y >= btn.y &&
+                pos.y <= btn.y + btn.h
+            ) {
+                newHover = i;
+                break;
+            }
+        }
+
+        window._menuHoverIndex =
+            newHover;
+
+        canvas.style.cursor =
+            newHover >= 0
+                ? 'pointer'
+                : 'default';
+
+    } else {
+
+        window._menuHoverIndex = -1;
+
+        canvas.style.cursor =
+            'default';
     }
-    pauseButton.hover = (pos.x >= 860 && pos.x <= 890 && pos.y >= 15 && pos.y <= 45);
+
+    // ------------------------------------------------------------
+    // SETTINGS SLIDER
+    // ------------------------------------------------------------
+
+    if (
+        isDraggingSlider &&
+        currentState === 'SETTINGS'
+    ) {
+        updateSliderFromPointer(
+            pos.x
+        );
+    }
+
+    // ------------------------------------------------------------
+    // PAUSE BUTTON
+    // ------------------------------------------------------------
+
+    pauseButton.hover =
+        (
+            pos.x >= 860 &&
+            pos.x <= 890 &&
+            pos.y >= 15 &&
+            pos.y <= 45
+        );
 });
 
 window.addEventListener('pointerup', () => {
     isDraggingSlider = false;
 });
 
+canvas.addEventListener('pointerleave', () => {
+    window._menuHoverIndex = -1;
+    canvas.style.cursor = 'default';
+});
+
 function togglePause() {
-    // Goal celebrations should be pausable too — remember which state we were
-    // in so resuming goes back to it (GOAL_SCORED just keeps counting its own
-    // banner timer once resumed, so the usual reset-for-kickoff still happens
-    // on schedule instead of being skipped).
-    if (currentState === 'PLAY' || currentState === 'GOAL_SCORED') {
-        prePauseState = currentState;
-        currentState = 'PAUSED';
-        SoundManager.playSFX('menuClick');
-    } else if (currentState === 'PAUSED') {
-        currentState = prePauseState;
-        SoundManager.playSFX('menuClick');
-    }
+    if (currentState === 'PLAY') { currentState = 'PAUSED'; SoundManager.playSFX('menuClick'); }
+    else if (currentState === 'PAUSED') { currentState = 'PLAY'; SoundManager.playSFX('menuClick'); }
     updateTouchUI();
 }
 
@@ -408,13 +556,32 @@ function selectMode(mode) {
     SoundManager.updateMusicForState(currentState);
 }
 
-function updateTouchUI() {
-    if (currentState === 'PLAY' && isMobileDevice) {
+// Cheap, side-effect-free DOM sync — safe to call every frame. Split out from
+// updateTouchUI() below so the per-frame safety net (see gameLoop in main.js)
+// doesn't also re-run SoundManager.updateMusicForState() 60x/sec.
+function syncTouchControlsVisibility() {
+    const inMatch = (currentState === 'PLAY' || currentState === 'PAUSED' || currentState === 'GOAL_SCORED');
+    if (inMatch && isMobileDevice) {
         touchControlsElem.style.display = 'block';
         touchControlsElem.className = 'touch-controls is-active mode-' + gameMode;
     } else {
         touchControlsElem.style.display = 'none';
     }
+}
+
+function updateTouchUI() {
+    // BUGFIX: this used to only check `currentState === 'PLAY'`, so any state
+    // transition to MENU/MATCH_END/etc. that forgot to call updateTouchUI()
+    // right after (there were several — e.g. tapping "Continue" out of a
+    // vs-Computer MATCH_END screen) left the joysticks/shoot buttons stuck on
+    // screen from the last match. As a second layer of defense, gameLoop
+    // (main.js) now also calls syncTouchControlsVisibility() every frame, so
+    // even a future call site that forgets this function can't leave the
+    // controls stuck for more than one frame. GOAL_SCORED and PAUSED are also
+    // genuinely still "in a match" — the controls should stay visible (though
+    // not needed) through a goal celebration or while paused, same as the
+    // in-canvas pause button does.
+    syncTouchControlsVisibility();
     SoundManager.updateMusicForState(currentState);
 }
 
@@ -436,6 +603,18 @@ function startTournamentMenu() {
     tournamentSelectedTeam = null;
     window._teamSelectBtns = [];
     window._tournamentFormatBtns = [];
+    // BUGFIX: wipe every tournament button hit-box left over from a
+    // previous run. Without this, starting a new tournament right after
+    // exiting/finishing one could leave a stale rect (e.g. an old
+    // "YOU ARE OUT" button) sitting on screen and silently swallowing taps
+    // meant for whatever's drawn in its place this time.
+    window._tournamentNextRoundBtn = null;
+    window._tournamentOutBtn = null;
+    window._tournamentPlayMatchBtn = null;
+    window._tournamentChampionBtn = null;
+    window._tournamentNextMatchBtn = null;
+    window._tournamentBracketViewBtn = null;
+    window._confirmExitTournament = false;
     console.log('[Tournament] Menu opened');
 }
 
