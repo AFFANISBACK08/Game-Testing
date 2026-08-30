@@ -2817,42 +2817,42 @@ if (currentState === 'MENU') {
             key: '01',
             label: '1 VS 1',
             sub: 'LOCAL SHOWDOWN',
-            y: 207,
+            y: 222,
             color: '#46e5ff'
         },
         {
             key: '02',
             label: 'VS COMPUTER',
             sub: 'TEST YOUR LIMITS',
-            y: 256,
+            y: 271,
             color: '#55d9ff'
         },
         {
             key: '03',
             label: 'INSTRUCTIONS',
             sub: 'LEARN THE CONTROLS',
-            y: 305,
+            y: 320,
             color: '#ffd45a'
         },
         {
             key: '04',
             label: 'SETTINGS',
             sub: 'MATCH & AUDIO',
-            y: 354,
+            y: 369,
             color: '#ff7474'
         },
         {
             key: '05',
             label: 'STATS',
             sub: 'YOUR RECORD',
-            y: 403,
+            y: 418,
             color: '#bb91ff'
         },
         {
             key: '06',
             label: 'TOURNAMENT',
             sub: 'CHASE THE CUP',
-            y: 452,
+            y: 467,
             color: '#ffd45a'
         }
     ];
@@ -3047,7 +3047,7 @@ if (currentState === 'MENU') {
                 : 'rgba(255,255,255,0.88)';
 
         ctx.font =
-            '900 15px Impact, "Arial Narrow", sans-serif';
+            '800 16px Outfit, sans-serif';
 
         ctx.fillText(
             opt.label,
@@ -3062,7 +3062,7 @@ if (currentState === 'MENU') {
                 : 'rgba(255,255,255,0.28)';
 
         ctx.font =
-            '600 7px "Arial Narrow", sans-serif';
+            '600 8px Outfit, sans-serif';
 
         ctx.fillText(
             opt.sub,
@@ -3566,21 +3566,13 @@ if (currentState === 'MENU') {
     // 12. FOOTER
     // ============================================================
 
-    ctx.textAlign = 'left';
+    ctx.textAlign = 'right';
 
     ctx.fillStyle =
         'rgba(255,255,255,0.13)';
 
     ctx.font =
         '600 7px "Arial Narrow", sans-serif';
-
-    ctx.fillText(
-        `MUSIC ${SoundManager.musicEnabled ? 'ON' : 'OFF'}   •   SFX ${SoundManager.sfxEnabled ? 'ON' : 'OFF'}`,
-        72,
-        570
-    );
-
-    ctx.textAlign = 'right';
 
     ctx.fillText(
         'PRO STRIKER // WEB ARCADE',
