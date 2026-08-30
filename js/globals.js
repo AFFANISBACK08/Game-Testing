@@ -22,6 +22,32 @@ let currentMatchTeamBId = null;
 
 const canvas = document.getElementById('gameCanvas');
 const ctx = canvas.getContext('2d');
+
+// ===== HI-DPI CANVAS SETUP =====
+// The whole game is coded against a fixed 900x600 logical coordinate space
+// (physics, hit-testing, UI layout all assume this). On Retina/high-DPI
+// screens, if the canvas *pixel buffer* is only 900x600 but gets stretched
+// across more physical screen pixels, the browser has to upscale it and
+// everything looks soft/blurry. To fix that WITHOUT touching any gameplay
+// math, we keep GAME_W/GAME_H as the logical size every script should keep
+// using, but size the actual canvas backing store to 900*dpr x 600*dpr and
+// scale the drawing context back down — so every existing draw call using
+// 900x600 coordinates still lands in exactly the same place, just rendered
+// at native sharpness.
+const GAME_W = 900;
+const GAME_H = 600;
+
+function setupHiDPICanvas() {
+    const dpr = Math.min(window.devicePixelRatio || 1, 3);
+    canvas.width = Math.round(GAME_W * dpr);
+    canvas.height = Math.round(GAME_H * dpr);
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    ctx.imageSmoothingEnabled = true;
+    if ('imageSmoothingQuality' in ctx) ctx.imageSmoothingQuality = 'high';
+}
+setupHiDPICanvas();
+window.addEventListener('resize', setupHiDPICanvas);
+window.addEventListener('orientationchange', () => setTimeout(setupHiDPICanvas, 100));
 const touchControlsElem = document.getElementById('touchControls');
 const gameWrapperElem = document.getElementById('gameWrapper');
 const goalFlashElem = document.getElementById('goalFlash');
