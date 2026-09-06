@@ -114,7 +114,28 @@ function getTurfTile() {
     return tile;
 }
 
-function drawPitch() {
+// ============================================================
+// PERF FIX (mobile lag): drawPitch() used to rebuild ~17 gradient objects
+// (10 stripe gradients + 5 wear-spot radial gradients + glow + vignette +
+// floodlight sheen) from scratch every single frame, forever — even though
+// the pitch is 100% static and never changes once the match starts. That's
+// on top of per-frame shadowBlur passes on the pitch lines. Gradient
+// construction is one of the more expensive canvas calls, and doing it
+// ~17 times * 60fps for a picture that never changes was pure waste —
+// the same class of bug already fixed for the turf tile (see getTurfTile())
+// and the AI config cache in ai.js. Fixed the same way: render the entire
+// pitch once to an offscreen canvas and blit that single image every frame
+// (a plain drawImage, no gradients, no shadows) instead of redrawing it.
+// ============================================================
+let _pitchCanvas = null;
+function getPitchCanvas() {
+    if (_pitchCanvas) return _pitchCanvas;
+
+    const off = document.createElement('canvas');
+    off.width = GAME_W;
+    off.height = GAME_H;
+    const pctx = off.getContext('2d');
+
     const stripeWidth = (875 - 25) / 10;
 
     // Base mow-stripe fill with a touch more contrast + a soft top-to-bottom
@@ -122,136 +143,145 @@ function drawPitch() {
     for (let i = 0; i < 10; i++) {
         const base = i % 2 === 0 ? '#1c9049' : '#249c58';
         const light = i % 2 === 0 ? '#2ab766' : '#31c777';
-        const stripeGrad = ctx.createLinearGradient(0, 0, 0, GAME_H);
+        const stripeGrad = pctx.createLinearGradient(0, 0, 0, GAME_H);
         stripeGrad.addColorStop(0, light);
         stripeGrad.addColorStop(0.12, base);
         stripeGrad.addColorStop(0.5, i % 2 === 0 ? '#23a457' : '#2bb768');
         stripeGrad.addColorStop(0.88, base);
         stripeGrad.addColorStop(1, light);
-        ctx.fillStyle = stripeGrad;
-        ctx.fillRect(25 + i * stripeWidth, 0, stripeWidth, GAME_H);
+        pctx.fillStyle = stripeGrad;
+        pctx.fillRect(25 + i * stripeWidth, 0, stripeWidth, GAME_H);
     }
 
     // Cross-mow banding — subtle horizontal bands perpendicular to the
     // vertical stripes, like a real mowed pitch cut in two directions.
-    ctx.save();
-    ctx.globalAlpha = 0.05;
-    ctx.fillStyle = '#ffffff';
+    pctx.save();
+    pctx.globalAlpha = 0.05;
+    pctx.fillStyle = '#ffffff';
     for (let y = 0; y < GAME_H; y += 40) {
-        ctx.fillRect(25, y, 850, 20);
+        pctx.fillRect(25, y, 850, 20);
     }
-    ctx.restore();
+    pctx.restore();
 
     // Grain/noise turf texture, tiled across the whole pitch
-    ctx.save();
-    ctx.beginPath();
-    ctx.rect(25, 0, 850, GAME_H);
-    ctx.clip();
+    pctx.save();
+    pctx.beginPath();
+    pctx.rect(25, 0, 850, GAME_H);
+    pctx.clip();
     const tile = getTurfTile();
-    const pattern = ctx.createPattern(tile, 'repeat');
-    ctx.fillStyle = pattern;
-    ctx.fillRect(25, 0, 850, GAME_H);
-    ctx.restore();
+    const pattern = pctx.createPattern(tile, 'repeat');
+    pctx.fillStyle = pattern;
+    pctx.fillRect(25, 0, 850, GAME_H);
+    pctx.restore();
 
     // Subtle turf mow-texture sheen along each stripe edge
-    ctx.save();
-    ctx.globalAlpha = 0.07;
-    ctx.fillStyle = '#ffffff';
+    pctx.save();
+    pctx.globalAlpha = 0.07;
+    pctx.fillStyle = '#ffffff';
     for (let i = 0; i < 10; i++) {
-        ctx.fillRect(25 + i * stripeWidth, 0, 2, GAME_H);
+        pctx.fillRect(25 + i * stripeWidth, 0, 2, GAME_H);
     }
-    ctx.restore();
+    pctx.restore();
 
     // Worn/scuffed turf patches near the goalmouths and center circle —
     // where real pitches show the most wear-and-tear discoloration.
-    ctx.save();
-    ctx.globalAlpha = 0.10;
+    pctx.save();
+    pctx.globalAlpha = 0.10;
     const wearSpots = [
         { x: 95, y: 300, r: 55 }, { x: 805, y: 300, r: 55 },
         { x: 450, y: 300, r: 42 }, { x: 210, y: 300, r: 30 }, { x: 690, y: 300, r: 30 }
     ];
     wearSpots.forEach(s => {
-        const wg = ctx.createRadialGradient(s.x, s.y, 0, s.x, s.y, s.r);
+        const wg = pctx.createRadialGradient(s.x, s.y, 0, s.x, s.y, s.r);
         wg.addColorStop(0, 'rgba(90,60,30,0.55)');
         wg.addColorStop(1, 'rgba(90,60,30,0)');
-        ctx.fillStyle = wg;
-        ctx.beginPath();
-        ctx.arc(s.x, s.y, s.r, 0, Math.PI * 2);
-        ctx.fill();
+        pctx.fillStyle = wg;
+        pctx.beginPath();
+        pctx.arc(s.x, s.y, s.r, 0, Math.PI * 2);
+        pctx.fill();
     });
-    ctx.restore();
+    pctx.restore();
 
-    ctx.save();
-    ctx.strokeStyle = 'rgba(255,255,255,0.95)';
-    ctx.shadowColor = 'rgba(255,255,255,0.35)';
-    ctx.shadowBlur = 4;
-    ctx.lineWidth = 3;
-    ctx.strokeRect(25, 0, 850, GAME_H);
-    ctx.beginPath();
-    ctx.moveTo(450, 0);
-    ctx.lineTo(450, 600);
-    ctx.stroke();
-    ctx.beginPath();
-    ctx.arc(450, 300, 70, 0, Math.PI * 2);
-    ctx.stroke();
-    ctx.shadowBlur = 0;
-    ctx.beginPath();
-    ctx.arc(450, 300, 4, 0, Math.PI * 2);
-    ctx.fillStyle = '#ffffff';
-    ctx.fill();
-    ctx.strokeRect(25, 150, 100, 300);
-    ctx.strokeRect(775, 150, 100, 300);
+    pctx.save();
+    pctx.strokeStyle = 'rgba(255,255,255,0.95)';
+    pctx.shadowColor = 'rgba(255,255,255,0.35)';
+    pctx.shadowBlur = 4;
+    pctx.lineWidth = 3;
+    pctx.strokeRect(25, 0, 850, GAME_H);
+    pctx.beginPath();
+    pctx.moveTo(450, 0);
+    pctx.lineTo(450, 600);
+    pctx.stroke();
+    pctx.beginPath();
+    pctx.arc(450, 300, 70, 0, Math.PI * 2);
+    pctx.stroke();
+    pctx.shadowBlur = 0;
+    pctx.beginPath();
+    pctx.arc(450, 300, 4, 0, Math.PI * 2);
+    pctx.fillStyle = '#ffffff';
+    pctx.fill();
+    pctx.strokeRect(25, 150, 100, 300);
+    pctx.strokeRect(775, 150, 100, 300);
     // Six-yard boxes for extra pitch-marking realism
-    ctx.lineWidth = 2.4;
-    ctx.strokeRect(25, 230, 40, 140);
-    ctx.strokeRect(835, 230, 40, 140);
-    ctx.lineWidth = 3;
-    ctx.beginPath();
-    ctx.arc(95, 300, 3, 0, Math.PI * 2);
-    ctx.fill();
-    ctx.beginPath();
-    ctx.arc(805, 300, 3, 0, Math.PI * 2);
-    ctx.fill();
+    pctx.lineWidth = 2.4;
+    pctx.strokeRect(25, 230, 40, 140);
+    pctx.strokeRect(835, 230, 40, 140);
+    pctx.lineWidth = 3;
+    pctx.beginPath();
+    pctx.arc(95, 300, 3, 0, Math.PI * 2);
+    pctx.fill();
+    pctx.beginPath();
+    pctx.arc(805, 300, 3, 0, Math.PI * 2);
+    pctx.fill();
     // Penalty-arc shadow accent at each box for depth
-    ctx.beginPath();
-    ctx.arc(95, 300, 70, -0.9, 0.9);
-    ctx.stroke();
-    ctx.beginPath();
-    ctx.arc(805, 300, 70, Math.PI - 0.9, Math.PI + 0.9);
-    ctx.stroke();
-    ctx.restore();
+    pctx.beginPath();
+    pctx.arc(95, 300, 70, -0.9, 0.9);
+    pctx.stroke();
+    pctx.beginPath();
+    pctx.arc(805, 300, 70, Math.PI - 0.9, Math.PI + 0.9);
+    pctx.stroke();
+    pctx.restore();
 
-    ctx.strokeStyle = 'rgba(255,255,255,0.35)';
-    ctx.lineWidth = 1;
+    pctx.strokeStyle = 'rgba(255,255,255,0.35)';
+    pctx.lineWidth = 1;
     for (let y = 200; y <= 400; y += 15) {
-        ctx.beginPath();
-        ctx.moveTo(0, y);
-        ctx.lineTo(25, y);
-        ctx.stroke();
-        ctx.beginPath();
-        ctx.moveTo(875, y);
-        ctx.lineTo(900, y);
-        ctx.stroke();
+        pctx.beginPath();
+        pctx.moveTo(0, y);
+        pctx.lineTo(25, y);
+        pctx.stroke();
+        pctx.beginPath();
+        pctx.moveTo(875, y);
+        pctx.lineTo(900, y);
+        pctx.stroke();
     }
-    const glow = ctx.createRadialGradient(450, 300, 10, 450, 300, 280);
+    const glow = pctx.createRadialGradient(450, 300, 10, 450, 300, 280);
     glow.addColorStop(0, 'rgba(255,255,255,0.05)');
     glow.addColorStop(1, 'transparent');
-    ctx.fillStyle = glow;
-    ctx.fillRect(0, 0, GAME_W, GAME_H);
+    pctx.fillStyle = glow;
+    pctx.fillRect(0, 0, GAME_W, GAME_H);
 
     // Stadium vignette for cinematic depth on all four edges
-    const vignette = ctx.createRadialGradient(450, 300, 260, 450, 300, 560);
+    const vignette = pctx.createRadialGradient(450, 300, 260, 450, 300, 560);
     vignette.addColorStop(0, 'rgba(0,0,0,0)');
     vignette.addColorStop(1, 'rgba(0,0,0,0.4)');
-    ctx.fillStyle = vignette;
-    ctx.fillRect(0, 0, GAME_W, GAME_H);
+    pctx.fillStyle = vignette;
+    pctx.fillRect(0, 0, GAME_W, GAME_H);
 
     // Soft directional "floodlight" sheen from the top, for a stadium-lit feel
-    const topLight = ctx.createLinearGradient(0, 0, 0, 140);
+    const topLight = pctx.createLinearGradient(0, 0, 0, 140);
     topLight.addColorStop(0, 'rgba(255,255,255,0.06)');
     topLight.addColorStop(1, 'rgba(255,255,255,0)');
-    ctx.fillStyle = topLight;
-    ctx.fillRect(25, 0, 850, 140);
+    pctx.fillStyle = topLight;
+    pctx.fillRect(25, 0, 850, 140);
+
+    _pitchCanvas = off;
+    return _pitchCanvas;
+}
+
+function drawPitch() {
+    // Every frame this is now just one drawImage blit of the pre-rendered
+    // pitch — no gradients, no shadows, no per-stripe loops at draw time.
+    ctx.drawImage(getPitchCanvas(), 0, 0);
 }
 
 // ============================================================
@@ -262,78 +292,138 @@ function drawPitch() {
 // player's actual squad number instead of a generic star. GK gets a
 // gold ring + glove-color center to read distinctly at a glance.
 // ============================================================
-function drawPlayerToken(p) {
-    const r = p.radius;
+// ============================================================
+// PERF FIX (mobile lag): drawPlayerToken() used to build THREE fresh
+// gradient objects (bevel fill, top-left sheen, bottom-right ambient
+// occlusion) plus a shadowBlur pass, PER PLAYER, PER FRAME — with 8 players
+// on the pitch that's ~1,440 gradient allocations every second, forever,
+// for a token whose look never actually changes (only its x/y position
+// does; the colors, ring style, and star are fixed once a match starts).
+// Fixed the same way as the pitch above: each unique disc appearance
+// (jersey color + gradient shade + GK-or-not + radius) is rendered exactly
+// once to a small offscreen sprite and cached; every frame after that is
+// just a drawImage centered on the player's current position — no
+// gradients, no shadows, no per-frame allocation. There are at most a
+// handful of distinct kit colors on the pitch at once (2 teams x outfield/
+// GK), so the cache stays tiny.
+// ============================================================
+const _playerSpriteCache = {};
 
-    ctx.save();
+// Local star-path helper for building the sprite (mirrors physics.js's
+// drawStar but draws relative to (0,0) on whatever context is passed in,
+// so it can target the offscreen sprite canvas instead of the live ctx).
+function _traceStarPath(sctx, cx, cy, spikes, outerRadius, innerRadius) {
+    let rot = Math.PI / 2 * 3;
+    let x = cx, y = cy;
+    let step = Math.PI / spikes;
+    sctx.beginPath();
+    sctx.moveTo(cx, cy - outerRadius);
+    for (let i = 0; i < spikes; i++) {
+        x = cx + Math.cos(rot) * outerRadius;
+        y = cy + Math.sin(rot) * outerRadius;
+        sctx.lineTo(x, y);
+        rot += step;
+        x = cx + Math.cos(rot) * innerRadius;
+        y = cy + Math.sin(rot) * innerRadius;
+        sctx.lineTo(x, y);
+        rot += step;
+    }
+    sctx.lineTo(cx, cy - outerRadius);
+    sctx.closePath();
+    sctx.fillStyle = '#f1c40f';
+    sctx.fill();
+}
+
+function getPlayerSprite(p) {
+    const r = p.radius;
+    const key = p.color + '|' + p.gradColor + '|' + (p.isGk ? 'gk' : 'out') + '|' + r;
+    if (_playerSpriteCache[key]) return _playerSpriteCache[key];
+
+    // Pad so the ring glow / star drop-shadow don't get clipped at the edges.
+    const pad = 10;
+    const size = Math.ceil((r + pad) * 2);
+    const cx = size / 2, cy = size / 2;
+
+    const off = document.createElement('canvas');
+    off.width = size;
+    off.height = size;
+    const sctx = off.getContext('2d');
 
     // Bevel: soft directional highlight (upper-left, like the pitch's
     // floodlight sheen) blended over the base radial fill.
-    let pGrad = ctx.createRadialGradient(p.x - r * 0.4, p.y - r * 0.45, r * 0.15, p.x, p.y, r);
+    let pGrad = sctx.createRadialGradient(cx - r * 0.4, cy - r * 0.45, r * 0.15, cx, cy, r);
     pGrad.addColorStop(0, p.color);
     pGrad.addColorStop(0.65, p.color);
     pGrad.addColorStop(1, p.gradColor);
-    ctx.beginPath();
-    ctx.arc(p.x, p.y, r, 0, Math.PI * 2);
-    ctx.fillStyle = pGrad;
-    ctx.fill();
+    sctx.beginPath();
+    sctx.arc(cx, cy, r, 0, Math.PI * 2);
+    sctx.fillStyle = pGrad;
+    sctx.fill();
 
     // Kit stripe accent — a subtle diagonal band across the disc so it reads
     // as a jersey rather than a flat token.
-    ctx.save();
-    ctx.beginPath();
-    ctx.arc(p.x, p.y, r, 0, Math.PI * 2);
-    ctx.clip();
-    ctx.fillStyle = 'rgba(255,255,255,0.10)';
-    ctx.beginPath();
-    ctx.moveTo(p.x - r, p.y - r * 0.15);
-    ctx.lineTo(p.x - r * 0.3, p.y - r);
-    ctx.lineTo(p.x + r * 0.05, p.y - r);
-    ctx.lineTo(p.x - r * 0.65, p.y + r * 0.15);
-    ctx.closePath();
-    ctx.fill();
-    ctx.restore();
+    sctx.save();
+    sctx.beginPath();
+    sctx.arc(cx, cy, r, 0, Math.PI * 2);
+    sctx.clip();
+    sctx.fillStyle = 'rgba(255,255,255,0.10)';
+    sctx.beginPath();
+    sctx.moveTo(cx - r, cy - r * 0.15);
+    sctx.lineTo(cx - r * 0.3, cy - r);
+    sctx.lineTo(cx + r * 0.05, cy - r);
+    sctx.lineTo(cx - r * 0.65, cy + r * 0.15);
+    sctx.closePath();
+    sctx.fill();
+    sctx.restore();
 
     // Top-left glossy highlight (gives the disc volume/roundness)
-    const sheen = ctx.createRadialGradient(p.x - r * 0.35, p.y - r * 0.45, 0, p.x - r * 0.35, p.y - r * 0.45, r * 0.7);
+    const sheen = sctx.createRadialGradient(cx - r * 0.35, cy - r * 0.45, 0, cx - r * 0.35, cy - r * 0.45, r * 0.7);
     sheen.addColorStop(0, 'rgba(255,255,255,0.35)');
     sheen.addColorStop(1, 'rgba(255,255,255,0)');
-    ctx.beginPath();
-    ctx.arc(p.x, p.y, r, 0, Math.PI * 2);
-    ctx.fillStyle = sheen;
-    ctx.fill();
+    sctx.beginPath();
+    sctx.arc(cx, cy, r, 0, Math.PI * 2);
+    sctx.fillStyle = sheen;
+    sctx.fill();
 
     // Bottom-right ambient occlusion (grounds the disc against the pitch)
-    const ao = ctx.createRadialGradient(p.x + r * 0.4, p.y + r * 0.5, 0, p.x + r * 0.4, p.y + r * 0.5, r * 0.9);
+    const ao = sctx.createRadialGradient(cx + r * 0.4, cy + r * 0.5, 0, cx + r * 0.4, cy + r * 0.5, r * 0.9);
     ao.addColorStop(0, 'rgba(0,0,0,0)');
     ao.addColorStop(1, 'rgba(0,0,0,0.22)');
-    ctx.beginPath();
-    ctx.arc(p.x, p.y, r, 0, Math.PI * 2);
-    ctx.fillStyle = ao;
-    ctx.fill();
+    sctx.beginPath();
+    sctx.arc(cx, cy, r, 0, Math.PI * 2);
+    sctx.fillStyle = ao;
+    sctx.fill();
 
     // Ring — gold + glow for GK, crisp white for outfielders
-    ctx.lineWidth = p.isGk ? 3 : 2;
-    ctx.strokeStyle = p.isGk ? '#f1c40f' : 'rgba(255,255,255,0.95)';
-    if (p.isGk) { ctx.shadowColor = '#f1c40f'; ctx.shadowBlur = 6; }
-    ctx.beginPath();
-    ctx.arc(p.x, p.y, r, 0, Math.PI * 2);
-    ctx.stroke();
-    ctx.shadowBlur = 0;
+    sctx.lineWidth = p.isGk ? 3 : 2;
+    sctx.strokeStyle = p.isGk ? '#f1c40f' : 'rgba(255,255,255,0.95)';
+    if (p.isGk) { sctx.shadowColor = '#f1c40f'; sctx.shadowBlur = 6; }
+    sctx.beginPath();
+    sctx.arc(cx, cy, r, 0, Math.PI * 2);
+    sctx.stroke();
+    sctx.shadowBlur = 0;
 
     // Star marker — kept from the original design (it reads instantly as a
     // "player token" motif, unlike a bare number, and doesn't visually
-    // compete with the P1/P2 labels or the scoreboard digits). Given a
-    // slight drop-shadow here so it sits into the new beveled disc instead
-    // of looking pasted on top of it.
-    ctx.save();
-    ctx.shadowColor = 'rgba(0,0,0,0.35)';
-    ctx.shadowBlur = 2;
-    ctx.shadowOffsetY = 0.5;
-    drawStar(p.x, p.y, 5, r * 0.5, r * 0.22);
-    ctx.restore();
+    // compete with the P1/P2 labels or the scoreboard digits).
+    sctx.save();
+    sctx.shadowColor = 'rgba(0,0,0,0.35)';
+    sctx.shadowBlur = 2;
+    sctx.shadowOffsetY = 0.5;
+    _traceStarPath(sctx, cx, cy, 5, r * 0.5, r * 0.22);
+    sctx.restore();
 
-    ctx.restore();
+    _playerSpriteCache[key] = { canvas: off, size, cx, cy };
+    return _playerSpriteCache[key];
+}
+
+function drawPlayerToken(p) {
+    // Every frame this is now one drawImage of a cached sprite, positioned
+    // under the player's current x/y — no gradients, no shadows, no
+    // per-frame allocation. The sprite is only ever (re)built the first
+    // time a given color/GK/radius combo is seen.
+    const sprite = getPlayerSprite(p);
+    ctx.drawImage(sprite.canvas, p.x - sprite.cx, p.y - sprite.cy);
 }
 
 function drawActiveIndicator(p, labelText, colorHex) {
@@ -1463,7 +1553,9 @@ function drawTournamentMenu() {
     drawMenuBackground();
     ctx.save();
 
-    drawGlassPanel(150, 60, 600, 420, 24, 'rgba(241,196,15,0.22)');
+    // Height bumped from 420 to 460 to fit the new CONTINUE TOURNAMENT
+    // button below NEW TOURNAMENT without pushing BACK past the panel edge.
+    drawGlassPanel(150, 60, 600, 460, 24, 'rgba(241,196,15,0.22)');
 
     ctx.textAlign = 'center';
     drawGlowTitle('🏆 TOURNAMENT', 450, 130, '#f1c40f', 44);
@@ -1484,11 +1576,31 @@ function drawTournamentMenu() {
         window._tournamentFormatBtns[idx] = { x: 450 - 160, y: formatY, w: 320, h: formatH, size: fmt.size };
     });
 
-    const startY = formatY + formatH + 45;
-    drawPillButton(300, startY, 300, 55, '▶ START TOURNAMENT', '#2ecc71', { active: true, fontSize: 22 });
+    // Two entry points: start fresh, or pick back up a tournament that was
+    // still in progress when the player last closed the game. Continue is
+    // only ever clickable when a genuinely resumable save exists — first
+    // time playing, or right after becoming champion, there's nothing to
+    // resume and it renders greyed out instead of being hidden, so the
+    // option is always visible but its availability is obvious at a glance.
+    const canContinue = (typeof TournamentManager !== 'undefined') && TournamentManager.hasResumableSave();
+
+    const startY = formatY + formatH + 30;
+    drawPillButton(300, startY, 300, 55, '▶ NEW TOURNAMENT', '#2ecc71', { active: true, fontSize: 22 });
     window._tournamentStartBtn = { x: 300, y: startY, w: 300, h: 55 };
 
-    const backY = startY + 55 + 35;
+    const continueY = startY + 55 + 12;
+    if (canContinue) {
+        drawPillButton(300, continueY, 300, 55, '⏵ CONTINUE TOURNAMENT', '#00c2ff', { active: true, fontSize: 20 });
+        window._tournamentContinueBtn = { x: 300, y: continueY, w: 300, h: 55 };
+    } else {
+        ctx.save();
+        ctx.globalAlpha = 0.35;
+        drawPillButton(300, continueY, 300, 55, '⏵ CONTINUE TOURNAMENT', '#666666', { active: false, fontSize: 20 });
+        ctx.restore();
+        window._tournamentContinueBtn = null;
+    }
+
+    const backY = continueY + 55 + 25;
     drawPillButton(350, backY, 200, 40, '← BACK', '#9b59b6', { fontSize: 16 });
     window._tournamentBackBtn = { x: 350, y: backY, w: 200, h: 40 };
     ctx.restore();
@@ -1843,7 +1955,7 @@ function drawExitTournamentConfirmOverlay() {
     drawGlowTitle('⚠️ EXIT TOURNAMENT?', 450, 265, '#e74c3c', 26);
     ctx.fillStyle = 'rgba(255,255,255,0.7)';
     ctx.font = '600 14px Outfit, sans-serif';
-    ctx.fillText('Your progress in this tournament will be lost.', 450, 300);
+    ctx.fillText('Your progress is saved — you can continue later.', 450, 300);
 
     drawPillButton(275, 330, 150, 45, 'STAY', '#2ecc71', { fontSize: 17 });
     window._confirmExitNoBtn = { x: 275, y: 330, w: 150, h: 45 };
