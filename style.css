@@ -1,6 +1,10 @@
 @import url('https://fonts.googleapis.com/css2?family=Outfit:wght@400;500;600;700;800;900&display=swap');
 
-* { margin:0; padding:0; box-sizing:border-box; -webkit-touch-callout:none; -webkit-user-select:none; user-select:none; }
+/* CRAZYGAMES REQUIREMENT: the -moz-/-ms- prefixes were missing here before —
+   CrazyGames' technical requirements ask for all four user-select variants
+   specifically, to stop double-tap/press-and-hold from triggering the OS
+   text-selection magnifier or a "select all + context menu" over the game. */
+* { margin:0; padding:0; box-sizing:border-box; -webkit-touch-callout:none; -webkit-user-select:none; -moz-user-select:none; -ms-user-select:none; user-select:none; }
 
 html, body {
     /* BUGFIX (mobile fit): this used to be overflow:hidden + position:fixed,
@@ -160,13 +164,21 @@ canvas { display: block; width: 100%; height: 100%; background: #1a1a2e; image-r
        comfortably. ~15% bigger across the board, same responsive clamp shape. */
     width: clamp(70px, 12vw, 125px);
     height: clamp(70px, 12vw, 125px);
-    background: rgba(255,255,255,0.08);
+    /* PERF FIX (mobile lag): this base sits on screen continuously through
+       every match, and backdrop-filter: blur() is a GPU compositing effect
+       the browser has to keep recomputing every frame for as long as the
+       element is visible — on mid/low-end Android GPUs in particular this
+       is a reliable way to drop frame rate throughout the whole match,
+       not just at the edges. Swapped for a slightly darker/more opaque
+       solid fill, which reads as the same frosted-glass circle at a glance
+       (especially against the busy pitch behind it) with zero per-frame
+       compositing cost. No behavior change, purely visual + removes a
+       standing GPU cost. */
+    background: rgba(20,25,35,0.35);
     border: 2px solid rgba(255,255,255,0.25);
     border-radius: 50%;
     display: flex; justify-content: center; align-items: center;
     pointer-events: auto; touch-action: none;
-    -webkit-backdrop-filter: blur(8px);
-    backdrop-filter: blur(8px);
     box-shadow: 0 0 30px rgba(0,0,0,0.5);
     transition: all 0.3s ease;
     opacity: 0.7;
