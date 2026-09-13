@@ -5,7 +5,7 @@
 console.log('[ProStriker] icons.js loaded');
 
 const ICON_FILE_MAP = {
-    play: 'play', pause: 'pause', home: 'home', arrowLeft: 'back',
+    play: 'play', pause: 'pause', home: 'home', arrowLeft: 'back',     goal: 'goal',
     gear: 'settings', shieldEasy: 'shield', hard: 'hard', elite: 'elite',
     worldClass: 'worldclass', halfDuration: 'halfduration',
     book: 'instructions', chart: 'statistics', trophy: 'trophy',
