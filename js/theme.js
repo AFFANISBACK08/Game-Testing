@@ -918,3 +918,238 @@ function drawForfeitConfirmOverlay() {
     ctx.fillText('ESC to stay · ENTER to forfeit', 450, 396);
     ctx.restore();
 }
+// ============================================================
+// KNOCKOUT BRACKET — themed to match the rest of the game.
+// Overrides renderer.js's old dark-glass version (theme.js loads after
+// renderer.js, so this wins — same pattern as every other screen here).
+// ============================================================
+function drawBracketMatchBox(ctxRef, match, x, y, width, height, playerTeamId, isFinal = false) {
+    const isPlayerMatch = (match.teamA && match.teamA.id === playerTeamId) ||
+                          (match.teamB && match.teamB.id === playerTeamId);
+    const isPlayed = match.played;
+    const isPending = match.pending;
+    const hasWinner = isPlayed && match.winner;
+
+    let bgColor = THEME.ink2;
+    let borderColor = 'rgba(255,255,255,0.12)';
+    let borderWidth = 1;
+    if (isPlayerMatch) { bgColor = 'rgba(255,198,54,0.16)'; borderColor = THEME.gold; borderWidth = 2; }
+    else if (isPlayed) { bgColor = 'rgba(31,209,92,0.08)'; borderColor = 'rgba(31,209,92,0.35)'; }
+    else if (isFinal) { bgColor = 'rgba(255,198,54,0.08)'; borderColor = 'rgba(255,198,54,0.35)'; }
+
+    ctxRef.save();
+    ctxRef.fillStyle = bgColor;
+    ctxRef.beginPath();
+    ctxRef.roundRect(x, y, width, height, 6);
+    ctxRef.fill();
+    ctxRef.strokeStyle = borderColor;
+    ctxRef.lineWidth = borderWidth;
+    ctxRef.stroke();
+
+    const teamA = match.teamA || { name: 'TBD', flag: '' };
+    const isWinnerA = hasWinner && match.winner.id === teamA.id;
+    ctxRef.textAlign = 'left';
+    ctxRef.fillStyle = isWinnerA ? THEME.accent : 'rgba(255,255,255,0.85)';
+    ctxRef.font = '600 9px Outfit, sans-serif';
+    const nameA = teamA.name.length > 9 ? teamA.name.slice(0, 9) : teamA.name;
+    const flagWA = drawTeamFlag(teamA, x + 5, y + 14, 9, 'left');
+    ctxRef.fillText(nameA, x + 5 + flagWA, y + 14);
+    if (isWinnerA) drawIcon(ctxRef, 'trophy', x + width - 10, y + 9, 12, THEME.accent);
+
+    const teamB = match.teamB || { name: 'TBD', flag: '' };
+    const isWinnerB = hasWinner && match.winner.id === teamB.id;
+    ctxRef.fillStyle = isWinnerB ? THEME.accent : 'rgba(255,255,255,0.65)';
+    ctxRef.font = '600 9px Outfit, sans-serif';
+    const nameB = teamB.name.length > 9 ? teamB.name.slice(0, 9) : teamB.name;
+    const flagWB = drawTeamFlag(teamB, x + 5, y + height - 5, 9, 'left');
+    ctxRef.fillText(nameB, x + 5 + flagWB, y + height - 5);
+    if (isWinnerB) drawIcon(ctxRef, 'trophy', x + width - 10, y + height - 10, 12, THEME.accent);
+
+    ctxRef.textAlign = 'right';
+    if (isPlayed) {
+        ctxRef.fillStyle = 'rgba(255,255,255,0.75)';
+        ctxRef.font = '700 10px Outfit, sans-serif';
+        ctxRef.fillText(`${match.scoreA}-${match.scoreB}`, x + width - 6, y + height / 2 + 3);
+    } else if (isPending) {
+        ctxRef.fillStyle = THEME.gold;
+        ctxRef.font = '700 8px Outfit, sans-serif';
+        ctxRef.fillText('PENDING', x + width - 6, y + height / 2 + 3);
+    } else if (!isPlayerMatch) {
+        ctxRef.fillStyle = 'rgba(255,255,255,0.25)';
+        ctxRef.font = '600 8px Outfit, sans-serif';
+        ctxRef.fillText('VS', x + width - 6, y + height / 2 + 3);
+    }
+    ctxRef.restore();
+}
+
+function drawTournamentBracket() {
+    themeBackdrop();
+    ctx.save();
+
+    const bracket = TournamentManager.getBracketStatus();
+    if (!bracket || bracket.length === 0) {
+        ctx.textAlign = 'center';
+        ctx.fillStyle = 'rgba(255,255,255,0.4)';
+        ctx.font = '600 20px Outfit, sans-serif';
+        ctx.fillText('Bracket not yet available', 450, 300);
+        ctx.restore();
+        return;
+    }
+
+    const nextMatch = TournamentManager.getPlayerNextMatch();
+    const isComplete = TournamentManager.isComplete();
+    const isEliminated = TournamentManager.isPlayerEliminated();
+    const currentRound = TournamentManager.currentKnockoutRound || 0;
+    const roundNames = ['ROUND OF 16', 'QUARTER-FINALS', 'SEMI-FINALS', 'WORLD CUP FINAL'];
+    const currentRoundName = roundNames[currentRound] || 'KNOCKOUT STAGE';
+
+    ctx.textAlign = 'center';
+    themeTitle('trophy', currentRoundName, 450, 40, THEME.gold, 26);
+
+    const round0 = bracket[0]?.matches || [];
+    const round1 = bracket[1]?.matches || [];
+    const round2 = bracket[2]?.matches || [];
+    const round3 = bracket[3]?.matches || [];
+
+    const boxWidth = 110, boxHeight = 34, gapY = 10, gapX = 15;
+    const startY = 70, totalHeight = 450;
+
+    const leftMatches = round0.slice(0, 4);
+    const rightMatches = round0.slice(4, 8);
+
+    function getYPositions(count, startYPos, totalH, boxH, gap) {
+        const totalBoxHeight = count * boxH + (count - 1) * gap;
+        const offset = (totalH - totalBoxHeight) / 2;
+        const positions = [];
+        for (let i = 0; i < count; i++) positions.push(startYPos + offset + i * (boxH + gap));
+        return positions;
+    }
+
+    const leftY = getYPositions(leftMatches.length, startY, totalHeight, boxHeight, gapY);
+    const rightY = getYPositions(rightMatches.length, startY, totalHeight, boxHeight, gapY);
+
+    const marginX = (900 - (7 * boxWidth + 6 * gapX)) / 2;
+    const col0 = marginX, col1 = col0 + boxWidth + gapX, col2 = col1 + boxWidth + gapX;
+    const col3 = col2 + boxWidth + gapX, col4 = col3 + boxWidth + gapX;
+    const col5 = col4 + boxWidth + gapX, col6 = col5 + boxWidth + gapX;
+    const leftX = [col0, col1, col2];
+    const rightX = [col6, col5, col4];
+    const finalX = col3;
+
+    ctx.textAlign = 'center';
+    ctx.fillStyle = 'rgba(255,255,255,0.35)';
+    ctx.font = '700 11px Outfit, sans-serif';
+    ctx.fillText('GROUPS A - D', leftX[0] + boxWidth / 2, startY - 10);
+    ctx.fillText('GROUPS E - H', rightX[0] + boxWidth / 2, startY - 10);
+
+    leftMatches.forEach((m, i) => drawBracketMatchBox(ctx, m, leftX[0], leftY[i], boxWidth, boxHeight, tournamentSelectedTeam));
+    rightMatches.forEach((m, i) => drawBracketMatchBox(ctx, m, rightX[0], rightY[i], boxWidth, boxHeight, tournamentSelectedTeam));
+
+    const leftQF = round1.slice(0, 2);
+    const qfY = getYPositions(leftQF.length, startY + 20, totalHeight - 40, boxHeight, gapY);
+    leftQF.forEach((m, i) => { if (m && m.teamA && m.teamB) drawBracketMatchBox(ctx, m, leftX[1], qfY[i], boxWidth, boxHeight, tournamentSelectedTeam); });
+
+    const rightQF = round1.slice(2, 4);
+    const qfYRight = getYPositions(rightQF.length, startY + 20, totalHeight - 40, boxHeight, gapY);
+    rightQF.forEach((m, i) => { if (m && m.teamA && m.teamB) drawBracketMatchBox(ctx, m, rightX[1], qfYRight[i], boxWidth, boxHeight, tournamentSelectedTeam); });
+
+    if (round2[0] && round2[0].teamA && round2[0].teamB) {
+        drawBracketMatchBox(ctx, round2[0], leftX[2], startY + totalHeight / 2 - boxHeight / 2 - 10, boxWidth, boxHeight, tournamentSelectedTeam);
+    }
+    if (round2[1] && round2[1].teamA && round2[1].teamB) {
+        drawBracketMatchBox(ctx, round2[1], rightX[2], startY + totalHeight / 2 - boxHeight / 2 - 10, boxWidth, boxHeight, tournamentSelectedTeam);
+    }
+
+    if (round3[0] && round3[0].teamA && round3[0].teamB) {
+        const finalY = startY + totalHeight / 2 - boxHeight / 2 + 40;
+        ctx.textAlign = 'center';
+        themeTitle('trophy', 'FINAL', 450, finalY - 14, THEME.gold, 16);
+        ctx.fillStyle = 'rgba(255,198,54,0.08)';
+        ctx.beginPath();
+        ctx.roundRect(finalX - 10, finalY - 6, boxWidth + 20, boxHeight + 12, 10);
+        ctx.fill();
+        ctx.strokeStyle = 'rgba(255,198,54,0.4)';
+        ctx.lineWidth = 2;
+        ctx.stroke();
+        drawBracketMatchBox(ctx, round3[0], finalX, finalY, boxWidth, boxHeight, tournamentSelectedTeam, true);
+    }
+
+    ctx.strokeStyle = 'rgba(255,255,255,0.15)';
+    ctx.lineWidth = 1.5;
+    for (let i = 0; i < 2; i++) {
+        const y1 = leftY[i * 2] + boxHeight / 2, y2 = leftY[i * 2 + 1] + boxHeight / 2, yTo = qfY[i] + boxHeight / 2;
+        const xFrom = leftX[0] + boxWidth, xTo = leftX[1];
+        ctx.beginPath(); ctx.moveTo(xFrom, y1); ctx.lineTo(xFrom + 12, y1); ctx.lineTo(xFrom + 12, yTo); ctx.lineTo(xTo, yTo); ctx.stroke();
+        ctx.beginPath(); ctx.moveTo(xFrom, y2); ctx.lineTo(xFrom + 12, y2); ctx.lineTo(xFrom + 12, yTo); ctx.stroke();
+    }
+    if (qfY.length >= 2 && round2[0] && round2[0].teamA) {
+        const y1 = qfY[0] + boxHeight / 2, y2 = qfY[1] + boxHeight / 2, yTo = startY + totalHeight / 2 - 10;
+        const xFrom = leftX[1] + boxWidth, xTo = leftX[2];
+        ctx.beginPath(); ctx.moveTo(xFrom, y1); ctx.lineTo(xFrom + 12, y1); ctx.lineTo(xFrom + 12, yTo); ctx.lineTo(xTo, yTo); ctx.stroke();
+        ctx.beginPath(); ctx.moveTo(xFrom, y2); ctx.lineTo(xFrom + 12, y2); ctx.lineTo(xFrom + 12, yTo); ctx.stroke();
+    }
+    for (let i = 0; i < 2; i++) {
+        const y1 = rightY[i * 2] + boxHeight / 2, y2 = rightY[i * 2 + 1] + boxHeight / 2, yTo = qfYRight[i] + boxHeight / 2;
+        const xFrom = rightX[0], xTo = rightX[1] + boxWidth;
+        ctx.beginPath(); ctx.moveTo(xFrom, y1); ctx.lineTo(xFrom - 12, y1); ctx.lineTo(xFrom - 12, yTo); ctx.lineTo(xTo, yTo); ctx.stroke();
+        ctx.beginPath(); ctx.moveTo(xFrom, y2); ctx.lineTo(xFrom - 12, y2); ctx.lineTo(xFrom - 12, yTo); ctx.stroke();
+    }
+    if (qfYRight.length >= 2 && round2[1] && round2[1].teamA) {
+        const y1 = qfYRight[0] + boxHeight / 2, y2 = qfYRight[1] + boxHeight / 2, yTo = startY + totalHeight / 2 - 10;
+        const xFrom = rightX[1], xTo = rightX[2] + boxWidth;
+        ctx.beginPath(); ctx.moveTo(xFrom, y1); ctx.lineTo(xFrom - 12, y1); ctx.lineTo(xFrom - 12, yTo); ctx.lineTo(xTo, yTo); ctx.stroke();
+        ctx.beginPath(); ctx.moveTo(xFrom, y2); ctx.lineTo(xFrom - 12, y2); ctx.lineTo(xFrom - 12, yTo); ctx.stroke();
+    }
+    if (round2[0] && round2[0].teamA && round2[1] && round2[1].teamA) {
+        const sfY = startY + totalHeight / 2 - 10, finalYPos = startY + totalHeight / 2 + 40;
+        ctx.beginPath(); ctx.moveTo(leftX[2] + boxWidth, sfY); ctx.lineTo(leftX[2] + boxWidth + 20, sfY); ctx.lineTo(leftX[2] + boxWidth + 20, finalYPos); ctx.lineTo(finalX, finalYPos); ctx.stroke();
+        ctx.beginPath(); ctx.moveTo(rightX[2], sfY); ctx.lineTo(rightX[2] - 20, sfY); ctx.lineTo(rightX[2] - 20, finalYPos); ctx.lineTo(finalX + boxWidth, finalYPos); ctx.stroke();
+    }
+
+    ctx.textAlign = 'center';
+    ctx.fillStyle = 'rgba(255,198,54,0.3)';
+    ctx.font = '600 11px Outfit, sans-serif';
+    ctx.fillText('▼ WINNER ▼', 450, startY + totalHeight + 30);
+
+    window._tournamentPlayMatchBtn = null;
+    window._tournamentChampionBtn = null;
+    let buttonY = startY + totalHeight + 55;
+
+    if (nextMatch && !isComplete && !isEliminated) {
+        const teamAName = nextMatch.teamA ? nextMatch.teamA.name : 'TBD';
+        const teamBName = nextMatch.teamB ? nextMatch.teamB.name : 'TBD';
+        const btnX = 150, btnW = 600, btnH = 45;
+        const label = `PLAY: ${teamAName} vs ${teamBName}`;
+        ctx.save();
+        ctx.fillStyle = THEME.accent;
+        ctx.beginPath();
+        ctx.roundRect(btnX, buttonY, btnW, btnH, 14);
+        ctx.fill();
+        ctx.fillStyle = THEME.ink;
+        ctx.textAlign = 'center';
+        let fontSize = 18;
+        ctx.font = `700 ${fontSize}px Outfit, sans-serif`;
+        while (ctx.measureText(label).width > btnW - 90 && fontSize > 13) { fontSize--; ctx.font = `700 ${fontSize}px Outfit, sans-serif`; }
+        drawIcon(ctx, 'play', btnX + 40, buttonY + btnH / 2, 20, THEME.ink);
+        ctx.fillText(label, btnX + btnW / 2 + 12, buttonY + btnH / 2 + fontSize * 0.32);
+        ctx.restore();
+        window._tournamentPlayMatchBtn = { x: btnX, y: buttonY, w: btnW, h: btnH };
+    } else if (isComplete) {
+        const champion = TournamentManager.champion;
+        if (champion) {
+            themeCard(250, buttonY, 400, 45, 12, THEME.gold);
+            ctx.font = '700 18px Outfit, sans-serif';
+            fillTextWithFlags([champion, ` ${champion.name} ARE CHAMPIONS!`], 450, buttonY + 28, ctx.font, THEME.gold);
+            window._tournamentChampionBtn = { x: 250, y: buttonY, w: 400, h: 45 };
+        }
+    } else if (isEliminated) {
+        themeCard(250, buttonY, 400, 45, 12, THEME.red);
+        ctx.fillStyle = THEME.red;
+        ctx.font = '700 16px Outfit, sans-serif';
+        ctx.textAlign = 'center';
+        ctx.fillText('YOU HAVE BEEN ELIMINATED', 450, buttonY + 28);
+    }
+
+    window._tournamentBracketBackBtn = themeBackButton(350, buttonY + 55, 200, 32);
+    ctx.restore();
+}
