@@ -2,6 +2,7 @@
 console.log('[ProStriker] credits.js loaded');
 
 const CREDITS_LIST = [
+        { icon: 'goal',          label: 'Game Icon',        author: 'Magnific' },
     { icon: 'football',      label: 'Football',        author: 'ranksol graphics' },
     { icon: 'play',          label: 'Play',             author: 'hqrloveq' },
     { icon: 'pause',         label: 'Pause',            author: 'hqrloveq' },
