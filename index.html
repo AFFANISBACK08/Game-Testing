@@ -6,8 +6,8 @@
     <meta name="mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
-    <title>⚽ Pro Striker – Ultimate Football</title>
-    <link rel="icon" type="image/svg+xml" href="favicon.svg" />
+    <title>Pro Striker – Ultimate Football</title>
+    <link rel="icon" type="image/png" href="images/goal.png" />
     <link rel="stylesheet" href="style.css" />
     <style>
         #loadingScreen {
@@ -67,10 +67,12 @@
         <h2 style="margin-bottom:10px;">Please Rotate Your Device</h2>
         <p style="opacity:0.7; max-width:300px;">Pro Striker works best in landscape mode. Rotate your phone for the best experience.</p>
     </div>
+    <div class="stadium-crowd left" aria-hidden="true"></div>
+    <div class="stadium-crowd right" aria-hidden="true"></div>
     <div id="gameWrapper" class="game-wrapper">
         <div id="loadingScreen">
             <div class="loader"></div>
-            <h1>⚽ PRO STRIKER</h1>
+            <h1><img src="images/football.png" alt="" style="height:32px; width:32px; vertical-align:middle; margin-right:8px;"> PRO STRIKER</h1>
             <p>Loading the beautiful game...</p>
             <div class="progress-bar"><div class="progress-fill" id="loadProgress"></div></div>
         </div>
@@ -105,13 +107,36 @@
             }
         }, 100);
 
-                window.addEventListener('load', () => {
+        function isCrazyGames() {
+            const hostname = window.location.hostname;
+            const parts = hostname.split(".");
+            const idx = parts.indexOf("crazygames");
+            return idx !== -1 && idx >= parts.length - 3;
+        }
+        function isLocalDev() {
+            const h = window.location.hostname;
+            return h === 'localhost' || h === '127.0.0.1' || h === '' || h === '[::1]';
+        }
+        const siteLockPassed = isCrazyGames() || isLocalDev();
+
+        window.addEventListener('load', () => {
+            if (!siteLockPassed) {
+                clearInterval(loadInterval);
+                const loadingScreen = document.getElementById('loadingScreen');
+                if (loadingScreen) {
+                    loadingScreen.innerHTML =
+                        '<h1><span style="-webkit-text-fill-color:initial; -webkit-background-clip:initial; background-clip:initial; display:inline-block;"><img src="images/football.png" alt="" style="height:32px; width:32px; vertical-align:middle; margin-right:8px;"></span>PRO STRIKER</h1><p>Available only on CrazyGames.</p>';
+                    loadingScreen.classList.remove('hidden');
+                }
+                return;
+            }
             const tryStart = () => {
                 if (typeof window.bootstrap === 'function') window.bootstrap();
                 else setTimeout(tryStart, 50);
             };
             tryStart();
         });
+
         function checkOrientation() {
             const warning = document.getElementById('rotateWarning');
             if (!warning) return;
